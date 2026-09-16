@@ -64,6 +64,7 @@ bool parseClientGuidTail(const std::string& text, std::array<uint8_t, 8>& tail) 
 
 uint32_t le32(const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; }
 uint16_t le16(const uint8_t* p) { return uint16_t(p[0]) | uint16_t(p[1]) << 8; }
+bool sameValue(const Value& a, const Value& b) { return a.type == b.type && a.bytes == b.bytes; }
 std::vector<uint8_t> ptpInitiatorName(const std::string& text) {
     // PTP/IP InitCommandRequest InitiatorName is UTF-16LE + NUL.
     // It is NOT a PTP dataset string and therefore has no leading UINT8 count.
@@ -256,6 +257,41 @@ bool SonyPtpIp::readPacket(bool eventChannel, Packet& packet, std::string& error
     return eventChannel ? transport_->readEventExact(packet.payload.data(), packet.payload.size(), 8000, error) : transport_->readCommandExact(packet.payload.data(), packet.payload.size(), 8000, error);
 }
 
+bool SonyPtpIp::serviceEvents(std::string& error) {
+    error.clear();
+    if (!transport_ || !transport_->connected()) {
+        error = "Camera is not connected";
+        return false;
+    }
+
+    bool stateChanged = false;
+    int drained = 0;
+    while (drained < 16 && transport_->eventReadable()) {
+        Packet packet;
+        if (!readPacket(true, packet, error)) return false;
+        ++drained;
+
+        if (packet.type == kProbeRequest) {
+            if (!writePacket(true, kProbeResponse, {}, error)) return false;
+            continue;
+        }
+        if (packet.type == kProbeResponse) continue;
+        if (packet.type == kEvent) {
+            stateChanged = true;
+            continue;
+        }
+    }
+
+    if (!stateChanged) return true;
+
+    std::string refreshError;
+    if (!refresh(refreshError)) {
+        error = "Sony event received, but 0x9209 state refresh failed: " + refreshError;
+        return false;
+    }
+    return true;
+}
+
 bool SonyPtpIp::sendData(uint32_t transaction, const std::vector<uint8_t>& data, std::string& error) {
     Writer start; start.u32(transaction); start.u64(data.size());
     if (!writePacket(false, kStartData, start.bytes, error)) return false;
@@ -362,6 +398,54 @@ bool SonyPtpIp::refresh(std::string& error) {
     return true;
 }
 
+bool SonyPtpIp::verifyProperty(uint16_t property, const Value& target, std::string& error) {
+    const uint16_t readbackProperty =
+        property == kPropFocusPositionSetting ? kPropFocusPositionCurrent : property;
+
+    std::string lastRefreshError;
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(attempt == 0 ? 280 : 120));
+
+        std::string refreshError;
+        if (!refresh(refreshError)) {
+            lastRefreshError = refreshError;
+            continue;
+        }
+
+        const auto* current = state_.property(readbackProperty);
+        if (current && sameValue(current->current, target)) return true;
+    }
+
+    const auto* current = state_.property(readbackProperty);
+    error = "Sony accepted property write, but camera readback did not match";
+    if (current) {
+        error += " (requested " + formatValue(target) +
+                 ", camera " + formatValue(current->current) + ")";
+    } else {
+        error += " (readback property " + hex(readbackProperty, 4) + " unavailable)";
+    }
+    if (!lastRefreshError.empty()) error += "; last refresh error: " + lastRefreshError;
+    return false;
+}
+
+bool SonyPtpIp::verifyRecordState(RecordState expected, std::string& error) {
+    std::string lastRefreshError;
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(attempt == 0 ? 180 : 120));
+
+        std::string refreshError;
+        if (!refresh(refreshError)) {
+            lastRefreshError = refreshError;
+            continue;
+        }
+        if (state_.recordState == expected) return true;
+    }
+
+    error = "Sony accepted REC control, but D21D readback did not reach the requested state";
+    if (!lastRefreshError.empty()) error += "; last refresh error: " + lastRefreshError;
+    return false;
+}
+
 bool SonyPtpIp::setProperty(uint16_t property, const Value& target, std::string& error) {
     if (!state_.canWrite(property)) {
         error = "Camera reports this property is unavailable or read-only";
@@ -372,17 +456,7 @@ bool SonyPtpIp::setProperty(uint16_t property, const Value& target, std::string&
     if (isExtended(property)) parameters.push_back(1u);
 
     if (!operation(kOpSetProperty, parameters, &target.bytes, nullptr, error)) return false;
-
-    // The working ESP32 path does not immediately treat a 0x9209 readback as
-    // part of the write transaction. FX3 can need a short interval to apply
-    // the property before it is visible in CurrentValue.
-    std::this_thread::sleep_for(std::chrono::milliseconds(280));
-
-    std::string verifyError;
-    if (!refresh(verifyError)) {
-        emit("Sony accepted property write, but verification refresh failed: " + verifyError);
-    }
-    return true;
+    return verifyProperty(property, target, error);
 }
 
 bool SonyPtpIp::control(uint16_t controlCode, const Value& value, std::string& error) {
@@ -418,28 +492,13 @@ bool SonyPtpIp::control(uint16_t controlCode, const Value& value, std::string& e
 }
 
 bool SonyPtpIp::startRecording(std::string& error) {
-    // D21D is readback/status only. REC control is D2C8:
-    // DOWN=0x00000002, 4-byte UINT32.
     if (!control(kSonyCtrlMovieRec, Value::number(kDataUInt32, kSonyButtonDown), error)) return false;
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(180));
-    std::string verifyError;
-    if (!refresh(verifyError)) {
-        emit("REC START accepted, but recording-state refresh failed: " + verifyError);
-    }
-    return true;
+    return verifyRecordState(RecordState::recording, error);
 }
 
 bool SonyPtpIp::stopRecording(std::string& error) {
-    // REC STOP is the matching button UP=0x00000001, also UINT32.
     if (!control(kSonyCtrlMovieRec, Value::number(kDataUInt32, kSonyButtonUp), error)) return false;
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(180));
-    std::string verifyError;
-    if (!refresh(verifyError)) {
-        emit("REC STOP accepted, but recording-state refresh failed: " + verifyError);
-    }
-    return true;
+    return verifyRecordState(RecordState::stopped, error);
 }
 void SonyPtpIp::emit(const std::string& message) const { if (eventCallback_) eventCallback_(message); }
 
