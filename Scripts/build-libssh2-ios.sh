@@ -21,7 +21,13 @@ IOS=(-DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DE
 cmake -S "$CACHE/mbedtls" -B "$BUILD/mbedtls" "${IOS[@]}" -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DMBEDTLS_FATAL_WARNINGS=OFF -DCMAKE_INSTALL_PREFIX="$BUILD/prefix"
 cmake --build "$BUILD/mbedtls" --config Release --parallel 3
 cmake --install "$BUILD/mbedtls" --config Release
-cmake -S "$CACHE/libssh2" -B "$BUILD/libssh2" "${IOS[@]}" -DBUILD_SHARED_LIBS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DCRYPTO_BACKEND=mbedTLS -DMBEDTLS_ROOT_DIR="$BUILD/prefix"
+cmake -S "$CACHE/libssh2" -B "$BUILD/libssh2" "${IOS[@]}" \
+  -DBUILD_SHARED_LIBS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+  -DCRYPTO_BACKEND=mbedTLS \
+  -DMBEDTLS_INCLUDE_DIR="$BUILD/prefix/include" \
+  -DMBEDCRYPTO_LIBRARY="$BUILD/prefix/lib/libmbedcrypto.a" \
+  -DMBEDX509_LIBRARY="$BUILD/prefix/lib/libmbedx509.a" \
+  -DMBEDTLS_LIBRARY="$BUILD/prefix/lib/libmbedtls.a"
 cmake --build "$BUILD/libssh2" --config Release --parallel 3
 
 rm -rf "$OUT/include" "$OUT/lib"; mkdir -p "$OUT/include" "$OUT/lib"
