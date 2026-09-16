@@ -50,14 +50,31 @@ constexpr uint16_t kPropWhiteBalanceAB = 0xD21C;
 
 // Focus properties / controls.
 constexpr uint16_t kPropFocusMode = 0x500A;
+constexpr uint16_t kPropMeteringMode = 0x500B;
 constexpr uint16_t kPropFocusArea = 0xD22C;
 constexpr uint16_t kPropFocusIndication = 0xD213;
+
+// Sony Camera Remote SDK remote-touch/tracking capabilities.  The public SDK
+// defines the semantics and value ranges; these wire IDs are only used when
+// the camera actually exposes the corresponding descriptor in 0x9209.
+constexpr uint16_t kPropFocusTouchSpotStatus = 0xE004;
+constexpr uint16_t kPropFocusTrackingStatus = 0xE005;
+constexpr uint16_t kPropFunctionOfRemoteTouchOperation = 0xE083;
+constexpr uint16_t kPropRemoteTouchOperationEnableStatus = 0xD284;
+constexpr uint16_t kPropCancelRemoteTouchOperationEnableStatus = 0xD285;
 constexpr uint16_t kPropNearFarEnableStatus = 0xD235; // status/readback, not a writable enable switch
 constexpr uint16_t kPropFocusPositionSetting = 0xE042;
 constexpr uint16_t kPropFocusPositionCurrent = 0xE043;
 constexpr uint16_t kCtrlRelativeFocus = 0xD2D1;
 constexpr uint16_t kCtrlShutterS1 = 0xD2C1;
 constexpr uint16_t kCtrlShutterS2 = 0xD2C2;
+constexpr uint16_t kCtrlRemoteTouchOperation = 0xD2E4;
+constexpr uint16_t kCtrlCancelRemoteTouchOperation = 0xD2E5;
+
+// Remote-touch function values from Sony Camera Remote SDK.
+constexpr uint8_t kRemoteTouchTrackingAF = 0x01;
+constexpr uint8_t kRemoteTouchSpotAF = 0x02;
+constexpr uint8_t kRemoteTouchAFAreaSelect = 0x03;
 
 // REC is a CONTROL code, not the D21D readback property.
 constexpr uint16_t kCtrlMovieRec = 0xD2C8;
