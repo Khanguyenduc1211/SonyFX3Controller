@@ -11,6 +11,7 @@ namespace {
 constexpr uint32_t kInitCommandRequest = 1, kInitCommandAck = 2, kInitEventRequest = 3, kInitEventAck = 4;
 constexpr uint32_t kOperationRequest = 6, kOperationResponse = 7, kEvent = 8;
 constexpr uint32_t kStartData = 9, kData = 10, kEndData = 12;
+constexpr uint32_t kProbeRequest = 13, kProbeResponse = 14;
 constexpr uint32_t kDataPhaseIn = 1, kDataPhaseOut = 2;
 
 uint32_t le32(const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; }
@@ -49,7 +50,9 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
         // PTP/IP clients must present a unique GUID.  A constant client GUID
         // makes a Sony camera retain/replace a previous session instead of
         // reliably acknowledging a reconnect.
-        std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x46,0x58,0x33,0x43};
+        // Same Sony client GUID layout as the proven ESP32 controller; only
+        // its final eight bytes are the unique client identity.
+        std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x45,0x53,0x50,0x32};
         arc4random_buf(guid.data() + 8, 8);
         body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpString("SonyFX3Controller")); body.u32(0x00010000);
     }
@@ -102,13 +105,13 @@ bool SonyPtpIp::writePacket(bool eventChannel, uint32_t type, const std::vector<
 
 bool SonyPtpIp::readPacket(bool eventChannel, Packet& packet, std::string& error) {
     std::array<uint8_t, 8> header{};
-    const bool headerRead = eventChannel ? transport_->readEventExact(header.data(), header.size(), 5000, error) : transport_->readCommandExact(header.data(), header.size(), 5000, error);
+    const bool headerRead = eventChannel ? transport_->readEventExact(header.data(), header.size(), 8000, error) : transport_->readCommandExact(header.data(), header.size(), 8000, error);
     if (!headerRead) return false;
     const uint32_t length = le32(header.data());
     if (length < 8 || length > 4 * 1024 * 1024) { error = "Invalid PTP/IP packet length"; return false; }
     packet.type = le32(header.data() + 4); packet.payload.resize(length - 8);
     if (packet.payload.empty()) return true;
-    return eventChannel ? transport_->readEventExact(packet.payload.data(), packet.payload.size(), 5000, error) : transport_->readCommandExact(packet.payload.data(), packet.payload.size(), 5000, error);
+    return eventChannel ? transport_->readEventExact(packet.payload.data(), packet.payload.size(), 8000, error) : transport_->readCommandExact(packet.payload.data(), packet.payload.size(), 8000, error);
 }
 
 bool SonyPtpIp::sendData(uint32_t transaction, const std::vector<uint8_t>& data, std::string& error) {
@@ -132,6 +135,12 @@ bool SonyPtpIp::receiveResponse(uint32_t transaction, std::vector<uint8_t>* inco
     if (incomingData) incomingData->clear();
     for (;;) {
         Packet packet; if (!readPacket(false, packet, error)) return false;
+        // The camera may probe a quiet PTP/IP command channel. It is a packet
+        // exchange, not an operation response; reply before waiting again.
+        if (packet.type == kProbeRequest) {
+            if (!writePacket(false, kProbeResponse, {}, error)) return false;
+            continue;
+        }
         if (packet.type == kStartData || packet.type == kData || packet.type == kEndData) {
             if (packet.payload.size() < 4 || le32(packet.payload.data()) != transaction) { error = "PTP/IP data transaction mismatch"; return false; }
             if (incomingData && packet.type != kStartData) incomingData->insert(incomingData->end(), packet.payload.begin() + 4, packet.payload.end());
@@ -147,7 +156,8 @@ bool SonyPtpIp::receiveResponse(uint32_t transaction, std::vector<uint8_t>* inco
 
 bool SonyPtpIp::refresh(std::string& error) {
     std::vector<uint8_t> dataset;
-    if (!operation(kOpGetAllPropertyInfo, {0, state_.supportsExtendedProperties ? 1u : 0u}, nullptr, &dataset, error)) return false;
+    const std::vector<uint32_t> parameters = state_.supportsExtendedProperties ? std::vector<uint32_t>{0, 1} : std::vector<uint32_t>{};
+    if (!operation(kOpGetAllPropertyInfo, parameters, nullptr, &dataset, error)) return false;
     try { state_.update(parseAllPropertyInfo(dataset)); }
     catch (const std::exception& exception) { error = std::string("Cannot parse camera property data: ") + exception.what(); return false; }
     if (stateCallback_) stateCallback_(state_);
