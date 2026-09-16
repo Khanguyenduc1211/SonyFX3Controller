@@ -35,6 +35,7 @@ public:
     bool writeEvent(const std::vector<uint8_t>& bytes, std::string& error);
     bool readCommandExact(uint8_t* destination, size_t count, uint32_t timeoutMilliseconds, std::string& error);
     bool readEventExact(uint8_t* destination, size_t count, uint32_t timeoutMilliseconds, std::string& error);
+    bool eventReadable() const;
     bool connected() const { return session_ != nullptr; }
     void close();
 
