@@ -14,8 +14,10 @@ final class ControlViewController: UIViewController {
 
     private let controls: [(String, UInt16)] = [
         ("ISO", 0xD21E),
+        ("Log mode", 0xE000),
         ("Base ISO", 0xD020),
-        ("Cine EI", 0xD022),
+        ("Exposure Index (EI)", 0xD022),
+        ("Current ISO", 0xD023),
         ("Shutter", 0xD20D),
         ("Iris", 0x5007),
         ("White balance", 0x5005),
@@ -140,7 +142,10 @@ final class ControlViewController: UIViewController {
             ValuePickerViewController(
                 title: propertyNames[property] ?? "Setting",
                 values: values,
-                current: model.current(for: property)
+                current: model.current(for: property),
+                labels: { [model] value in
+                    model.displayValue(for: property, value: value)
+                }
             ) { [weak self] value in
                 self?.model.set(property, to: value) { message in
                     self?.details.text = message
@@ -148,14 +153,6 @@ final class ControlViewController: UIViewController {
             },
             animated: true
         )
-    }
-
-    private func displayValue(_ property: UInt16, _ value: Int64) -> String {
-        if property == 0xD020 {
-            if value == 1 { return "HIGH" }
-            if value == 2 { return "LOW" }
-        }
-        return String(value)
     }
 
     @objc private func render() {
@@ -187,7 +184,7 @@ final class ControlViewController: UIViewController {
         for (property, button) in propertyButtons {
             let name = propertyNames[property] ?? String(format: "0x%04X", property)
             if let current = model.current(for: property) {
-                button.setTitle("  \(name)   •   \(displayValue(property, current))", for: .normal)
+                button.setTitle("  \(name)   •   \(model.displayValue(for: property, value: current))", for: .normal)
             } else {
                 button.setTitle("  \(name)   •   —", for: .normal)
             }
