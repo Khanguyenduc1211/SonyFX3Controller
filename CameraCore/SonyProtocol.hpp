@@ -17,6 +17,7 @@ namespace sony {
 
 constexpr uint16_t kPtpOk = 0x2001;
 constexpr uint16_t kOpOpenSession = 0x1002;
+constexpr uint16_t kOpGetObject = 0x1009;
 constexpr uint16_t kOpSdioConnect = 0x9201;
 constexpr uint16_t kOpGetExtDeviceInfo = 0x9202;
 constexpr uint16_t kOpSetProperty = 0x9205;
@@ -33,6 +34,13 @@ constexpr uint16_t kPropExposureMode = 0x500E;
 constexpr uint16_t kPropBatteryLevel = 0xD20E;
 constexpr uint16_t kPropSlot1RemainingTime = 0xD24A;
 constexpr uint16_t kPropSlot2RemainingTime = 0xD258;
+
+// Sony Live View properties / special object used by the working ESP32 controller.
+constexpr uint16_t kPropLiveViewStatus = 0xD221;
+constexpr uint16_t kPropLiveViewImageQuality = 0xD26A;
+constexpr uint8_t kLiveViewQualityLow = 0x01;
+constexpr uint8_t kLiveViewQualityHigh = 0x02;
+constexpr uint32_t kLiveViewObjectHandle = 0xFFFFC002u;
 
 // White balance properties used by the working ESP32 controller.
 constexpr uint16_t kPropWhiteBalance = 0x5005;
