@@ -71,7 +71,7 @@ final class RecordFormatViewController: UIViewController {
         for (property, button) in buttons {
             let name = title(for: property)
             if let current = model.current(for: property) {
-                button.setTitle("  \(name)   •   \(current)", for: .normal)
+                button.setTitle("  \(name)   •   \(model.displayValue(for: property, value: current))", for: .normal)
             } else {
                 button.setTitle("  \(name)   •   —", for: .normal)
             }
@@ -102,7 +102,10 @@ final class RecordFormatViewController: UIViewController {
             ValuePickerViewController(
                 title: title(for: property),
                 values: values,
-                current: model.current(for: property)
+                current: model.current(for: property),
+                labels: { [model] value in
+                    model.displayValue(for: property, value: value)
+                }
             ) { [weak self] value in
                 guard let self else { return }
                 self.model.set(property, to: value) { message in
