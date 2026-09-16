@@ -9,7 +9,12 @@ final class LiveViewViewController: UIViewController {
 
     private let model = CameraViewModel.shared
 
+    private let externalPreviewView = UIView()
     private let imageView = UIImageView()
+    private let externalMonitor = ExternalMonitorCapture()
+    private var monitorControlHDActive = false
+    private var monitorControlSource: ExternalMonitorCapture.ActiveSource?
+
     private let topBar = UIView()
     private let liveLabel = UILabel()
     private let diagnosticsLabel = UILabel()
@@ -107,6 +112,30 @@ final class LiveViewViewController: UIViewController {
         configureEditor()
         configureStatus()
 
+        externalMonitor.onDisconnected = { [weak self] in
+            guard let self, self.liveRunning else { return }
+
+            self.monitorControlHDActive = false
+            self.monitorControlSource = nil
+            self.externalPreviewView.isHidden = true
+            self.imageView.isHidden = false
+            self.generation &+= 1
+            self.frameInFlight = false
+            self.model.setLiveViewActive(true)
+            self.statusLabel.text = "HDMI/UVC disconnected • PTP fallback"
+            self.configureHighestCameraQuality(generation: self.generation)
+            self.renderDiagnostics()
+        }
+
+        externalMonitor.onConnected = { [weak self] in
+            guard let self,
+                  self.liveRunning,
+                  !self.monitorControlHDActive
+            else { return }
+
+            self.switchToPreferredMonitorSource()
+        }
+
         stateObserver = NotificationCenter.default.addObserver(
             forName: .cameraViewModelDidChange,
             object: model,
@@ -140,6 +169,11 @@ final class LiveViewViewController: UIViewController {
         stopLiveView()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        externalMonitor.updateLayout()
+    }
+
     deinit {
         timecodeTimer?.invalidate()
         if let stateObserver {
@@ -148,12 +182,24 @@ final class LiveViewViewController: UIViewController {
     }
 
     private func configurePreview() {
+        externalPreviewView.backgroundColor = .black
+        externalPreviewView.translatesAutoresizingMaskIntoConstraints = false
+        externalPreviewView.isHidden = true
+        view.addSubview(externalPreviewView)
+
         imageView.contentMode = .scaleAspectFit
         imageView.backgroundColor = .black
         imageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(imageView)
 
+        externalMonitor.attach(to: externalPreviewView)
+
         NSLayoutConstraint.activate([
+            externalPreviewView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            externalPreviewView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            externalPreviewView.topAnchor.constraint(equalTo: view.topAnchor),
+            externalPreviewView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
             imageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             imageView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -338,16 +384,62 @@ final class LiveViewViewController: UIViewController {
         lastRoundTripMilliseconds = 0
         liveResolution = "—"
         fpsWindowStart = Date()
-        model.setLiveViewActive(true)
 
+        switchToPreferredMonitorSource()
+    }
+
+    private func switchToPreferredMonitorSource() {
+        guard liveRunning else { return }
+
+        generation &+= 1
         let token = generation
-        configureHighestCameraQuality(generation: token)
+        frameInFlight = false
+
+        externalMonitor.start { [weak self] result in
+            guard let self,
+                  self.liveRunning,
+                  token == self.generation
+            else { return }
+
+            switch result {
+            case .started(let source):
+                self.monitorControlHDActive = true
+                self.monitorControlSource = source
+
+                // Sony Monitor & Control high-resolution mode uses the external
+                // HDMI/UVC video path. PTP remains only for camera state/control,
+                // so periodic state refresh no longer competes with video.
+                self.model.setLiveViewActive(false)
+                self.imageView.isHidden = true
+                self.externalPreviewView.isHidden = false
+                self.statusLabel.text =
+                    "MONITOR & CONTROL HD • \(source.deviceName)"
+                self.renderDiagnostics()
+
+            case .unavailable(let reason):
+                self.monitorControlHDActive = false
+                self.monitorControlSource = nil
+                self.externalPreviewView.isHidden = true
+                self.imageView.isHidden = false
+
+                // No external Monitor & Control video source: keep the proven
+                // Sony PTP JPEG Live View as an automatic fallback.
+                self.model.setLiveViewActive(true)
+                self.statusLabel.text = reason + " • PTP fallback"
+                self.configureHighestCameraQuality(generation: token)
+            }
+        }
     }
 
     private func stopLiveView() {
         generation &+= 1
         liveRunning = false
         frameInFlight = false
+        monitorControlHDActive = false
+        monitorControlSource = nil
+        externalMonitor.stop()
+        externalPreviewView.isHidden = true
+        imageView.isHidden = false
         model.setLiveViewActive(false)
     }
 
@@ -370,6 +462,8 @@ final class LiveViewViewController: UIViewController {
     }
 
     private func kickLiveViewIfReady() {
+        guard !monitorControlHDActive else { return }
+
         guard liveRunning,
               model.connected,
               !frameInFlight,
@@ -398,7 +492,8 @@ final class LiveViewViewController: UIViewController {
     }
 
     private func requestNextFrame(generation token: Int) {
-        guard liveRunning,
+        guard !monitorControlHDActive,
+              liveRunning,
               token == generation,
               model.connected,
               !frameInFlight,
@@ -483,6 +578,16 @@ final class LiveViewViewController: UIViewController {
     }
 
     private func renderDiagnostics() {
+        if monitorControlHDActive, let source = monitorControlSource {
+            let fpsText = source.fps > 0
+                ? String(format: "%.1f FPS", source.fps)
+                : "UVC"
+
+            diagnosticsLabel.text =
+                "M&C HD  \(fpsText)\n\(source.resolution)  HDMI→UVC"
+            return
+        }
+
         let quality = model.current(for: 0xD26A) == 0x02 ? "HQ" : "LIVE"
         diagnosticsLabel.text = String(
             format: "%@  %.1f FPS\n%@  %.0f ms",
