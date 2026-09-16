@@ -16,6 +16,14 @@ constexpr uint32_t kStartData = 9, kData = 10, kEndData = 12;
 constexpr uint32_t kProbeRequest = 13, kProbeResponse = 14;
 constexpr uint32_t kDataPhaseIn = 1, kDataPhaseOut = 2;
 
+// Sony control codes/values verified against the working ESP32 controller.
+constexpr uint16_t kSonyCtrlMovieRec = 0xD2C8;
+constexpr uint16_t kSonyCtrlShutterS1 = 0xD2C1;
+constexpr uint16_t kSonyCtrlShutterS2 = 0xD2C2;
+constexpr uint16_t kSonyCtrlRelativeFocus = 0xD2D1;
+constexpr uint32_t kSonyButtonUp = 0x00000001;
+constexpr uint32_t kSonyButtonDown = 0x00000002;
+
 // The proven ESP32 controller uses the ASCII prefix "SONYESP2" in the
 // first eight bytes and a persistent unique value in the final eight bytes.
 // The bridge supplies a persistent UUID string through setClientGuid().
@@ -83,16 +91,51 @@ void SonyPtpIp::setClientGuid(const std::string& clientGuid) {
     gClientGuidConfigured = true;
 }
 
-ConnectResult SonyPtpIp::connect(const std::string& host, const std::string& username, const std::string& password, const std::string& trustedFingerprint) {
-    disconnect(); transport_ = std::make_unique<SSHTransport>();
+ConnectResult SonyPtpIp::connect(const std::string& host,
+                                    const std::string& username,
+                                    const std::string& password,
+                                    const std::string& trustedFingerprint) {
+    disconnect();
+    transport_ = std::make_unique<SSHTransport>();
+
     const auto verified = transport_->connectAndVerify(host, 22, trustedFingerprint);
-    if (!verified.ok) return {false, verified.needsTrust, verified.message, verified.fingerprint};
+    if (!verified.ok)
+        return {false, verified.needsTrust, verified.message, verified.fingerprint};
+
     const auto authenticated = transport_->authenticatePassword(username, password);
-    if (!authenticated.ok) { disconnect(); return {false, false, authenticated.message, verified.fingerprint}; }
+    if (!authenticated.ok) {
+        disconnect();
+        return {false, false, authenticated.message, verified.fingerprint};
+    }
+
     std::string error;
-    if (!transport_->openCameraTunnels(error) || !initializePtp(error)) { disconnect(); return {false, false, error, verified.fingerprint}; }
-    if (!refresh(error)) emit("Connected, but initial camera state refresh failed: " + error);
-    return {true, false, "Connected through verified SSH tunnel", verified.fingerprint};
+    if (!transport_->openCameraTunnels(error) || !initializePtp(error)) {
+        disconnect();
+        return {false, false, error, verified.fingerprint};
+    }
+
+    // Do not announce CAMERA READY until the same 0x9209 state path used by
+    // every control is actually parsable. This catches protocol/parser drift
+    // immediately instead of showing a connected-but-dead UI.
+    bool stateReady = false;
+    std::string stateError;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        stateError.clear();
+        if (refresh(stateError)) {
+            stateReady = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    }
+
+    if (!stateReady) {
+        disconnect();
+        return {false, false,
+                "PTP3 connected, but Sony 0x9209 state sync failed: " + stateError,
+                verified.fingerprint};
+    }
+
+    return {true, false, "CAMERA READY - Sony PTP3 state synchronized", verified.fingerprint};
 }
 
 void SonyPtpIp::disconnect() { if (transport_) transport_->close(); transport_.reset(); state_ = {}; transaction_ = 1; connectionId_ = 0; }
@@ -137,32 +180,63 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
 
 bool SonyPtpIp::initializePtp(std::string& error) {
     if (!initializeChannel(false, error) || !initializeChannel(true, error)) return false;
+
     std::vector<uint8_t> ignored;
-    // Sony's PTP/IP flow sends OpenSession with transaction ID 0.  Subsequent
-    // operations begin at 1. Sending OpenSession as transaction 1 leaves the
-    // camera waiting and the tunnel only reports EAGAIN/would-block.
+
+    // Working ESP32 flow:
+    // OpenSession transaction=0, then normal transactions start at 1.
     transaction_ = 0;
     if (!operation(kOpOpenSession, {1}, nullptr, nullptr, error)) return false;
-    // Sony PTP3 sequence from CameraRemoteCommand: stages 1, 2, wait until
-    // GetExtDeviceInfo returns PTP3 version 0x012C, then stage 3.
+
     if (!operation(kOpSdioConnect, {1, 0, 0}, nullptr, &ignored, error)) return false;
     if (!operation(kOpSdioConnect, {2, 0, 0}, nullptr, &ignored, error)) return false;
+
     bool ready = false;
     for (int attempt = 0; attempt < 30; ++attempt) {
         std::vector<uint8_t> info;
-        if (operation(kOpGetExtDeviceInfo, {0x012C}, nullptr, &info, error) && info.size() >= 2 && le16(info.data()) == 0x012C) { ready = true; break; }
+        if (operation(kOpGetExtDeviceInfo, {0x012C}, nullptr, &info, error) &&
+            info.size() >= 2 && le16(info.data()) == 0x012C) {
+            ready = true;
+            break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    if (!ready) { error = "Sony PTP3 version 0x012C was not returned"; return false; }
-    if (!operation(kOpSdioConnect, {3, 0, 0}, nullptr, &ignored, error)) return false;
-    std::vector<uint8_t> versionData;
-    if (operation(kOpGetVendorVersion, {}, nullptr, &versionData, error) && versionData.size() >= 4) {
-        state_.vendorVersion = le32(versionData.data());
-        state_.supportsExtendedProperties = state_.vendorVersion >= 310;
+    if (!ready) {
+        error = "Sony PTP3 version 0x012C was not returned";
+        return false;
     }
-    // D25A is a property write (HOST_PC = 1), not an SDIO control command.
+
+    if (!operation(kOpSdioConnect, {3, 0, 0}, nullptr, &ignored, error)) return false;
+
+    // Sony 0x9216 is firmware-dependent: the version can be returned either
+    // in a data payload OR in OperationResponse Param1. The working ESP32
+    // accepts both. Do the same here.
+    std::vector<uint8_t> versionData;
+    std::vector<uint32_t> versionResponseParameters;
+    std::string versionError;
+    if (operation(kOpGetVendorVersion, {}, nullptr, &versionData, versionError,
+                  &versionResponseParameters)) {
+        uint32_t version = 0;
+        if (versionData.size() >= 4) version = le32(versionData.data());
+        else if (versionData.size() >= 2) version = le16(versionData.data());
+        else if (versionData.size() >= 1) version = versionData[0];
+        if (version == 0 && !versionResponseParameters.empty())
+            version = versionResponseParameters[0];
+
+        state_.vendorVersion = version;
+        state_.supportsExtendedProperties = version >= 310;
+    } else {
+        // Match ESP32 behavior: 0x9216 being unavailable is not fatal to the
+        // normal non-extended control path.
+        state_.vendorVersion = 0;
+        state_.supportsExtendedProperties = false;
+        emit("VendorCodeVersion unavailable; extended properties disabled: " + versionError);
+    }
+
+    // Enter Sony HOST PC control mode only after PTP3 is ready.
     const auto hostPc = Value::number(kDataUInt8, 1);
     if (!operation(kOpSetProperty, {0xD25A}, &hostPc.bytes, nullptr, error)) return false;
+
     return true;
 }
 
@@ -189,7 +263,7 @@ bool SonyPtpIp::sendData(uint32_t transaction, const std::vector<uint8_t>& data,
     return writePacket(false, kEndData, end.bytes, error);
 }
 
-bool SonyPtpIp::operation(uint16_t opcode, const std::vector<uint32_t>& parameters, const std::vector<uint8_t>* outgoingData, std::vector<uint8_t>* incomingData, std::string& error) {
+bool SonyPtpIp::operation(uint16_t opcode, const std::vector<uint32_t>& parameters, const std::vector<uint8_t>* outgoingData, std::vector<uint8_t>* incomingData, std::string& error, std::vector<uint32_t>* responseParameters) {
     if (!transport_ || !transport_->connected()) { error = "Camera is not connected"; return false; }
     const uint32_t tx = transaction_++;
     // PTP/IP DataPhaseInfo is 1 for "no data or data-in" and 2 for data-out.
@@ -203,28 +277,77 @@ bool SonyPtpIp::operation(uint16_t opcode, const std::vector<uint32_t>& paramete
     for (uint32_t p : parameters) request.u32(p);
     if (!writePacket(false, kOperationRequest, request.bytes, error)) return false;
     if (outgoingData && !sendData(tx, *outgoingData, error)) return false;
-    return receiveResponse(tx, incomingData, error);
+    return receiveResponse(tx, incomingData, error, responseParameters);
 }
 
-bool SonyPtpIp::receiveResponse(uint32_t transaction, std::vector<uint8_t>* incomingData, std::string& error) {
+bool SonyPtpIp::receiveResponse(uint32_t transaction,
+                                std::vector<uint8_t>* incomingData,
+                                std::string& error,
+                                std::vector<uint32_t>* responseParameters) {
     if (incomingData) incomingData->clear();
+    if (responseParameters) responseParameters->clear();
+
     for (;;) {
-        Packet packet; if (!readPacket(false, packet, error)) return false;
-        // The camera may probe a quiet PTP/IP command channel. It is a packet
-        // exchange, not an operation response; reply before waiting again.
+        Packet packet;
+        if (!readPacket(false, packet, error)) return false;
+
         if (packet.type == kProbeRequest) {
             if (!writePacket(false, kProbeResponse, {}, error)) return false;
             continue;
         }
-        if (packet.type == kStartData || packet.type == kData || packet.type == kEndData) {
-            if (packet.payload.size() < 4 || le32(packet.payload.data()) != transaction) { error = "PTP/IP data transaction mismatch"; return false; }
-            if (incomingData && packet.type != kStartData) incomingData->insert(incomingData->end(), packet.payload.begin() + 4, packet.payload.end());
+
+        if (packet.type == kProbeResponse) {
             continue;
         }
-        if (packet.type != kOperationResponse || packet.payload.size() < 6) { error = "Unexpected PTP/IP operation response"; return false; }
-        if (le32(packet.payload.data() + 2) != transaction) { error = "PTP/IP response transaction mismatch"; return false; }
+
+        if (packet.type == kStartData || packet.type == kData || packet.type == kEndData) {
+            if (packet.payload.size() < 4 ||
+                le32(packet.payload.data()) != transaction) {
+                error = "PTP/IP data transaction mismatch";
+                return false;
+            }
+
+            // StartData carries tx + UINT64 totalLength only.
+            // Data/EndData carry tx + actual data bytes.
+            if (incomingData && packet.type != kStartData) {
+                incomingData->insert(incomingData->end(),
+                                     packet.payload.begin() + 4,
+                                     packet.payload.end());
+            }
+            continue;
+        }
+
+        // Do not let an unrelated event/probe packet permanently desynchronize
+        // the command transaction parser. The working ESP32 consumes unrelated
+        // packets and keeps waiting for this transaction's response.
+        if (packet.type != kOperationResponse) {
+            continue;
+        }
+
+        if (packet.payload.size() < 6) {
+            error = "Truncated PTP/IP operation response";
+            return false;
+        }
+
+        if (le32(packet.payload.data() + 2) != transaction) {
+            error = "PTP/IP response transaction mismatch";
+            return false;
+        }
+
         const uint16_t code = le16(packet.payload.data());
-        if (code != kPtpOk) { error = "Sony PTP operation failed with " + hex(code, 4); return false; }
+
+        if (responseParameters) {
+            const size_t parameterBytes = packet.payload.size() - 6;
+            const size_t parameterCount = std::min<size_t>(5, parameterBytes / 4);
+            for (size_t i = 0; i < parameterCount; ++i) {
+                responseParameters->push_back(le32(packet.payload.data() + 6 + i * 4));
+            }
+        }
+
+        if (code != kPtpOk) {
+            error = "Sony PTP operation failed with " + hex(code, 4);
+            return false;
+        }
         return true;
     }
 }
@@ -240,24 +363,84 @@ bool SonyPtpIp::refresh(std::string& error) {
 }
 
 bool SonyPtpIp::setProperty(uint16_t property, const Value& target, std::string& error) {
-    if (!state_.canWrite(property)) { error = "Camera reports this property is unavailable or read-only"; return false; }
+    if (!state_.canWrite(property)) {
+        error = "Camera reports this property is unavailable or read-only";
+        return false;
+    }
 
     std::vector<uint32_t> parameters{property};
     if (isExtended(property)) parameters.push_back(1u);
 
     if (!operation(kOpSetProperty, parameters, &target.bytes, nullptr, error)) return false;
-    return refresh(error);
-}
 
-bool SonyPtpIp::control(uint16_t controlCode, const Value& value, std::string& error) {
-    // Working ESP32/Sony flow sends exactly one operation parameter for 0x9207:
-    // the control/property code. The control value is carried in the data-out phase.
-    if (!operation(kOpSdioControl, {controlCode}, &value.bytes, nullptr, error)) return false;
+    // The working ESP32 path does not immediately treat a 0x9209 readback as
+    // part of the write transaction. FX3 can need a short interval to apply
+    // the property before it is visible in CurrentValue.
+    std::this_thread::sleep_for(std::chrono::milliseconds(280));
+
+    std::string verifyError;
+    if (!refresh(verifyError)) {
+        emit("Sony accepted property write, but verification refresh failed: " + verifyError);
+    }
     return true;
 }
 
-bool SonyPtpIp::startRecording(std::string& error) { if (!control(kPropRecordState, Value::number(kDataUInt8, 1), error)) return false; return refresh(error); }
-bool SonyPtpIp::stopRecording(std::string& error) { if (!control(kPropRecordState, Value::number(kDataUInt8, 0), error)) return false; return refresh(error); }
+bool SonyPtpIp::control(uint16_t controlCode, const Value& value, std::string& error) {
+    // 0x9207 has exactly one operation parameter: the Sony control code.
+    // The control value itself is the Data-Out payload. Payload width matters.
+    Value encoded = value;
+    const int64_t numeric = value.signedNumber();
+
+    switch (controlCode) {
+        case kSonyCtrlMovieRec:
+        case kSonyCtrlShutterS2:
+            // Working ESP32 REC/S2 path sends UINT32.
+            encoded = Value::number(kDataUInt32, numeric);
+            break;
+
+        case kSonyCtrlShutterS1:
+            // Focus-page S1 hold uses a 2-byte DOWN/UP value.
+            encoded = Value::number(kDataUInt16, numeric);
+            break;
+
+        case kSonyCtrlRelativeFocus:
+            // D2D1 is signed relative focus: +/-1, +/-3, +/-7.
+            encoded = Value::number(kDataInt16, numeric);
+            break;
+
+        default:
+            // For any future control not explicitly mapped, preserve the
+            // caller-provided datatype instead of silently forcing INT16.
+            break;
+    }
+
+    return operation(kOpSdioControl, {controlCode}, &encoded.bytes, nullptr, error);
+}
+
+bool SonyPtpIp::startRecording(std::string& error) {
+    // D21D is readback/status only. REC control is D2C8:
+    // DOWN=0x00000002, 4-byte UINT32.
+    if (!control(kSonyCtrlMovieRec, Value::number(kDataUInt32, kSonyButtonDown), error)) return false;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    std::string verifyError;
+    if (!refresh(verifyError)) {
+        emit("REC START accepted, but recording-state refresh failed: " + verifyError);
+    }
+    return true;
+}
+
+bool SonyPtpIp::stopRecording(std::string& error) {
+    // REC STOP is the matching button UP=0x00000001, also UINT32.
+    if (!control(kSonyCtrlMovieRec, Value::number(kDataUInt32, kSonyButtonUp), error)) return false;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(180));
+    std::string verifyError;
+    if (!refresh(verifyError)) {
+        emit("REC STOP accepted, but recording-state refresh failed: " + verifyError);
+    }
+    return true;
+}
 void SonyPtpIp::emit(const std::string& message) const { if (eventCallback_) eventCallback_(message); }
 
 } // namespace sony
