@@ -5,6 +5,7 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <netdb.h>
 #include <sys/select.h>
@@ -12,6 +13,23 @@
 #include <unistd.h>
 
 namespace sony {
+namespace {
+void keyboardInteractivePasswordCallback(const char*, int, const char*, int,
+                                         int promptCount,
+                                         const LIBSSH2_USERAUTH_KBDINT_PROMPT*,
+                                         LIBSSH2_USERAUTH_KBDINT_RESPONSE* responses,
+                                         void** abstract) {
+    auto* password = abstract ? static_cast<std::string*>(*abstract) : nullptr;
+    if (!password) return;
+    // Sony's keyboard-interactive prompt is answered with the same password
+    // entered by the user. libssh2 owns and frees response text after use.
+    for (int i = 0; i < promptCount; ++i) {
+        responses[i].length = static_cast<unsigned int>(password->size());
+        responses[i].text = static_cast<char*>(std::malloc(password->size()));
+        if (responses[i].text && !password->empty()) std::memcpy(responses[i].text, password->data(), password->size());
+    }
+}
+}
 
 SSHTransport::SSHTransport() { libssh2_init(0); }
 SSHTransport::~SSHTransport() { close(); libssh2_exit(); }
@@ -47,9 +65,20 @@ SSHResult SSHTransport::connectAndVerify(const std::string& host, uint16_t port,
 
 SSHResult SSHTransport::authenticatePassword(const std::string& username, const std::string& password) {
     if (!session_) return {false, false, "SSH session is not connected", {}};
-    if (libssh2_userauth_password_ex(session_, username.c_str(), static_cast<unsigned int>(username.size()), password.c_str(), static_cast<unsigned int>(password.size()), nullptr) != 0)
-        return {false, false, "Camera rejected SSH credentials: " + lastSshError(), {}};
-    return {true, false, "SSH authentication completed", {}};
+    if (libssh2_userauth_password_ex(session_, username.c_str(), static_cast<unsigned int>(username.size()), password.c_str(), static_cast<unsigned int>(password.size()), nullptr) == 0)
+        return {true, false, "SSH password authentication completed", {}};
+
+    const std::string passwordFailure = lastSshError();
+    // Some Sony firmware advertises only keyboard-interactive authentication.
+    // This is still password authentication; it is not a shell login or a
+    // protocol fallback. The host key was verified before this point.
+    auto* callbackPassword = const_cast<std::string*>(&password);
+    libssh2_session_set_abstract(session_, callbackPassword);
+    const int keyboardResult = libssh2_userauth_keyboard_interactive_ex(
+        session_, username.c_str(), static_cast<unsigned int>(username.size()), keyboardInteractivePasswordCallback);
+    libssh2_session_set_abstract(session_, nullptr);
+    if (keyboardResult == 0) return {true, false, "SSH keyboard-interactive authentication completed", {}};
+    return {false, false, "Camera rejected SSH credentials (password: " + passwordFailure + "; keyboard-interactive: " + lastSshError() + ")", {}};
 }
 
 bool SSHTransport::openCameraTunnels(std::string& error) {
