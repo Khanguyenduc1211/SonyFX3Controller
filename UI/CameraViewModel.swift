@@ -408,6 +408,12 @@ final class CameraViewModel {
         bridge.setRecording(value) { _, message in completion(message) }
     }
 
+    func requestLiveViewFrame(completion: @escaping (Data?, String) -> Void) {
+        bridge.requestLiveViewFrame { data, message in
+            completion(data as Data?, message)
+        }
+    }
+
     private func startPolling() {
         statePoller?.invalidate()
 
