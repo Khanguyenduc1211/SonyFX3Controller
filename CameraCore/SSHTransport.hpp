@@ -48,6 +48,9 @@ private:
     _LIBSSH2_SESSION* session_ = nullptr;
     _LIBSSH2_CHANNEL* commandChannel_ = nullptr;
     _LIBSSH2_CHANNEL* eventChannel_ = nullptr;
+    // Passed to libssh2_session_init_ex as the keyboard-interactive callback
+    // context; it must remain alive while the session exists.
+    std::string keyboardPassword_;
 };
 
 } // namespace sony

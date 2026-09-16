@@ -49,7 +49,7 @@ SSHResult SSHTransport::connectAndVerify(const std::string& host, uint16_t port,
     freeaddrinfo(addresses);
     if (socket_ < 0) return {false, false, "Cannot connect to camera SSH service on port 22", {}};
 
-    session_ = libssh2_session_init_ex(nullptr, nullptr, nullptr, nullptr);
+    session_ = libssh2_session_init_ex(nullptr, nullptr, nullptr, &keyboardPassword_);
     if (!session_) { close(); return {false, false, "Cannot create SSH session", {}}; }
     libssh2_session_set_blocking(session_, 1);
     if (libssh2_session_handshake(session_, socket_) != 0) {
@@ -72,11 +72,10 @@ SSHResult SSHTransport::authenticatePassword(const std::string& username, const 
     // Some Sony firmware advertises only keyboard-interactive authentication.
     // This is still password authentication; it is not a shell login or a
     // protocol fallback. The host key was verified before this point.
-    auto* callbackPassword = const_cast<std::string*>(&password);
-    libssh2_session_set_abstract(session_, callbackPassword);
+    keyboardPassword_ = password;
     const int keyboardResult = libssh2_userauth_keyboard_interactive_ex(
         session_, username.c_str(), static_cast<unsigned int>(username.size()), keyboardInteractivePasswordCallback);
-    libssh2_session_set_abstract(session_, nullptr);
+    keyboardPassword_.clear();
     if (keyboardResult == 0) return {true, false, "SSH keyboard-interactive authentication completed", {}};
     return {false, false, "Camera rejected SSH credentials (password: " + passwordFailure + "; keyboard-interactive: " + lastSshError() + ")", {}};
 }
