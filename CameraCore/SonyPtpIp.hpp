@@ -32,6 +32,7 @@ public:
     void setEventCallback(EventCallback callback) { eventCallback_ = std::move(callback); }
 
     bool refresh(std::string& error);
+    bool serviceEvents(std::string& error);
     bool setProperty(uint16_t property, const Value& target, std::string& error);
     bool control(uint16_t controlCode, const Value& value, std::string& error);
     bool startRecording(std::string& error);
@@ -49,6 +50,8 @@ private:
     bool sendData(uint32_t transaction, const std::vector<uint8_t>& data, std::string& error);
     bool receiveResponse(uint32_t transaction, std::vector<uint8_t>* incomingData, std::string& error,
                          std::vector<uint32_t>* responseParameters = nullptr);
+    bool verifyProperty(uint16_t property, const Value& target, std::string& error);
+    bool verifyRecordState(RecordState expected, std::string& error);
     bool isExtended(uint16_t code) const { return code >= 0xE000 && state_.supportsExtendedProperties; }
     void emit(const std::string& message) const;
 
