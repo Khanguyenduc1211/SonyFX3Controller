@@ -44,7 +44,20 @@ final class CameraViewModel {
     }
     func disconnect() { statePoller?.invalidate(); statePoller = nil; bridge.disconnect(); connected = false; properties = [:]; recordState = UInt32.max; onChange?() }
     func refresh(_ done: @escaping (String) -> Void) { bridge.refresh { _, message in done(message) } }
-    func values(for property: UInt16) -> [Int64] { (properties[property]?["setValues"] as? [NSNumber] ?? []).map { $0.int64Value } }
+    func values(for property: UInt16) -> [Int64] {
+        guard let propertyState = properties[property] else { return [] }
+
+        // Sony PTP3 0x9209 enum form contains two UINT16-counted lists.
+        // The working ESP32 controller skips the first list and uses the
+        // SECOND list as the supported/selectable values.
+        let supported = propertyState["getSetValues"] as? [NSNumber] ?? []
+        if !supported.isEmpty {
+            return supported.map { $0.int64Value }
+        }
+
+        // Fallback only for cameras/firmware that expose a single useful list.
+        return (propertyState["setValues"] as? [NSNumber] ?? []).map { $0.int64Value }
+    }
     func current(for property: UInt16) -> Int64? { (properties[property]?["current"] as? NSNumber)?.int64Value }
     func writable(_ property: UInt16) -> Bool { (properties[property]?["writable"] as? NSNumber)?.boolValue == true && (properties[property]?["enabled"] as? NSNumber)?.boolValue == true }
     func set(_ property: UInt16, to value: Int64, completion: @escaping (String) -> Void) { bridge.setProperty(property, value: value) { _, message in completion(message) } }
