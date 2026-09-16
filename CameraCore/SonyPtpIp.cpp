@@ -67,6 +67,10 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
 bool SonyPtpIp::initializePtp(std::string& error) {
     if (!initializeChannel(false, error) || !initializeChannel(true, error)) return false;
     std::vector<uint8_t> ignored;
+    // Sony's PTP/IP flow sends OpenSession with transaction ID 0.  Subsequent
+    // operations begin at 1. Sending OpenSession as transaction 1 leaves the
+    // camera waiting and the tunnel only reports EAGAIN/would-block.
+    transaction_ = 0;
     if (!operation(kOpOpenSession, {1}, nullptr, nullptr, error)) return false;
     // Sony PTP3 sequence from CameraRemoteCommand: stages 1, 2, wait until
     // GetExtDeviceInfo returns PTP3 version 0x012C, then stage 3.
