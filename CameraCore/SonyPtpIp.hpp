@@ -33,6 +33,7 @@ public:
 
     bool refresh(std::string& error);
     bool serviceEvents(std::string& error);
+    bool fetchLiveViewJpeg(std::vector<uint8_t>& jpeg, std::string& error);
     bool setProperty(uint16_t property, const Value& target, std::string& error);
     bool control(uint16_t controlCode, const Value& value, std::string& error);
     bool startRecording(std::string& error);
