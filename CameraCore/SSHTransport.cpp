@@ -51,8 +51,19 @@ SSHResult SSHTransport::connectAndVerify(const std::string& host, uint16_t port,
 
     session_ = libssh2_session_init_ex(nullptr, nullptr, nullptr, &keyboardPassword_);
     if (!session_) { close(); return {false, false, "Cannot create SSH session", {}}; }
-    libssh2_session_set_blocking(session_, 1);
-    if (libssh2_session_handshake(session_, socket_) != 0) {
+    libssh2_session_set_blocking(session_, 0);
+    libssh2_session_set_timeout(session_, 8000);
+    // Sony's SSH service uses this cipher in the documented controller flow.
+    if (libssh2_session_method_pref(session_, LIBSSH2_METHOD_CRYPT_CS, "aes128-ctr") != 0 ||
+        libssh2_session_method_pref(session_, LIBSSH2_METHOD_CRYPT_SC, "aes128-ctr") != 0) {
+        close(); return {false, false, "Camera SSH cipher aes128-ctr could not be selected", {}};
+    }
+    int handshake = LIBSSH2_ERROR_EAGAIN;
+    while (handshake == LIBSSH2_ERROR_EAGAIN) {
+        handshake = libssh2_session_handshake(session_, socket_);
+        if (handshake == LIBSSH2_ERROR_EAGAIN) { std::string ignored; if (!waitSocket(true, 10000, ignored)) { close(); return {false, false, "SSH handshake timed out", {}}; } }
+    }
+    if (handshake != 0) {
         const auto message = lastSshError(); close(); return {false, false, "SSH handshake failed: " + message, {}};
     }
     const auto* raw = reinterpret_cast<const unsigned char*>(libssh2_hostkey_hash(session_, LIBSSH2_HOSTKEY_HASH_SHA256));
@@ -65,9 +76,12 @@ SSHResult SSHTransport::connectAndVerify(const std::string& host, uint16_t port,
 
 SSHResult SSHTransport::authenticatePassword(const std::string& username, const std::string& password) {
     if (!session_) return {false, false, "SSH session is not connected", {}};
-    const char* methods = libssh2_userauth_list(session_, username.c_str(), static_cast<unsigned int>(username.size()));
+    const char* methods = nullptr;
+    do { methods = libssh2_userauth_list(session_, username.c_str(), static_cast<unsigned int>(username.size())); if (!methods && libssh2_session_last_errno(session_) == LIBSSH2_ERROR_EAGAIN) { std::string ignored; if (!waitSocket(true, 10000, ignored)) break; } } while (!methods && libssh2_session_last_errno(session_) == LIBSSH2_ERROR_EAGAIN);
     const std::string advertisedMethods = methods ? methods : "(camera did not report methods)";
-    if (libssh2_userauth_password_ex(session_, username.c_str(), static_cast<unsigned int>(username.size()), password.c_str(), static_cast<unsigned int>(password.size()), nullptr) == 0)
+    int passwordResult = LIBSSH2_ERROR_EAGAIN;
+    while (passwordResult == LIBSSH2_ERROR_EAGAIN) { passwordResult = libssh2_userauth_password_ex(session_, username.c_str(), static_cast<unsigned int>(username.size()), password.c_str(), static_cast<unsigned int>(password.size()), nullptr); if (passwordResult == LIBSSH2_ERROR_EAGAIN) { std::string ignored; if (!waitSocket(true, 10000, ignored)) break; } }
+    if (passwordResult == 0)
         return {true, false, "SSH password authentication completed", {}};
 
     const std::string passwordFailure = lastSshError();
@@ -75,8 +89,8 @@ SSHResult SSHTransport::authenticatePassword(const std::string& username, const 
     // This is still password authentication; it is not a shell login or a
     // protocol fallback. The host key was verified before this point.
     keyboardPassword_ = password;
-    const int keyboardResult = libssh2_userauth_keyboard_interactive_ex(
-        session_, username.c_str(), static_cast<unsigned int>(username.size()), keyboardInteractivePasswordCallback);
+    int keyboardResult = LIBSSH2_ERROR_EAGAIN;
+    while (keyboardResult == LIBSSH2_ERROR_EAGAIN) { keyboardResult = libssh2_userauth_keyboard_interactive_ex(session_, username.c_str(), static_cast<unsigned int>(username.size()), keyboardInteractivePasswordCallback); if (keyboardResult == LIBSSH2_ERROR_EAGAIN) { std::string ignored; if (!waitSocket(true, 10000, ignored)) break; } }
     keyboardPassword_.clear();
     if (keyboardResult == 0) return {true, false, "SSH keyboard-interactive authentication completed", {}};
     return {false, false, "Camera rejected SSH credentials. Offered methods: " + advertisedMethods + ". Password: " + passwordFailure + "; keyboard-interactive: " + lastSshError(), {}};
@@ -86,18 +100,22 @@ bool SSHTransport::openCameraTunnels(std::string& error) {
     if (!session_) { error = "SSH session is not authenticated"; return false; }
     // Use libssh2's canonical direct-tcpip helper, matching the working
     // controller path: SSH -> localhost:15740 inside the camera.
-    commandChannel_ = libssh2_channel_direct_tcpip(session_, "localhost", 15740);
+    for (;;) { commandChannel_ = libssh2_channel_direct_tcpip(session_, "localhost", 15740); if (commandChannel_ || libssh2_session_last_errno(session_) != LIBSSH2_ERROR_EAGAIN) break; if (!waitSocket(false, 10000, error)) return false; }
     if (!commandChannel_) { error = "Cannot open SSH command tunnel to camera localhost:15740: " + lastSshError(); return false; }
-    eventChannel_ = libssh2_channel_direct_tcpip(session_, "localhost", 15740);
+    for (;;) { eventChannel_ = libssh2_channel_direct_tcpip(session_, "localhost", 15740); if (eventChannel_ || libssh2_session_last_errno(session_) != LIBSSH2_ERROR_EAGAIN) break; if (!waitSocket(false, 10000, error)) return false; }
     if (!eventChannel_) { error = "Cannot open SSH event tunnel to camera localhost:15740: " + lastSshError(); return false; }
     return true;
 }
 
 bool SSHTransport::waitSocket(bool read, uint32_t timeoutMilliseconds, std::string& error) const {
     if (socket_ < 0) { error = "SSH socket is closed"; return false; }
-    fd_set fds; FD_ZERO(&fds); FD_SET(socket_, &fds);
+    fd_set readable, writable; FD_ZERO(&readable); FD_ZERO(&writable);
+    const int directions = libssh2_session_block_directions(session_);
+    if (directions & LIBSSH2_SESSION_BLOCK_INBOUND) FD_SET(socket_, &readable);
+    if (directions & LIBSSH2_SESSION_BLOCK_OUTBOUND) FD_SET(socket_, &writable);
+    if (!directions) { if (read) FD_SET(socket_, &readable); else FD_SET(socket_, &writable); }
     timeval timeout{}; timeout.tv_sec = timeoutMilliseconds / 1000; timeout.tv_usec = (timeoutMilliseconds % 1000) * 1000;
-    const int result = select(socket_ + 1, read ? &fds : nullptr, read ? nullptr : &fds, nullptr, &timeout);
+    const int result = select(socket_ + 1, &readable, &writable, nullptr, &timeout);
     if (result > 0) return true;
     error = result == 0 ? "SSH tunnel timed out" : std::string("Socket wait failed: ") + strerror(errno);
     return false;
@@ -109,7 +127,7 @@ bool SSHTransport::writeChannel(_LIBSSH2_CHANNEL* channel, const std::vector<uin
     while (offset < bytes.size()) {
         const ssize_t written = libssh2_channel_write(channel, reinterpret_cast<const char*>(bytes.data() + offset), bytes.size() - offset);
         if (written > 0) { offset += static_cast<size_t>(written); continue; }
-        if (written == LIBSSH2_ERROR_EAGAIN && waitSocket(false, 5000, error)) continue;
+        if ((written == LIBSSH2_ERROR_EAGAIN || written == 0) && waitSocket(false, 5000, error)) continue;
         error = "SSH tunnel write failed: " + lastSshError(); return false;
     }
     return true;
@@ -121,7 +139,7 @@ bool SSHTransport::readChannelExact(_LIBSSH2_CHANNEL* channel, uint8_t* destinat
     while (offset < count) {
         const ssize_t received = libssh2_channel_read(channel, reinterpret_cast<char*>(destination + offset), count - offset);
         if (received > 0) { offset += static_cast<size_t>(received); continue; }
-        if (received == LIBSSH2_ERROR_EAGAIN && waitSocket(true, timeoutMilliseconds, error)) continue;
+        if ((received == LIBSSH2_ERROR_EAGAIN || received == 0) && !libssh2_channel_eof(channel) && waitSocket(true, timeoutMilliseconds, error)) continue;
         error = "SSH tunnel read failed: " + lastSshError(); return false;
     }
     return true;
