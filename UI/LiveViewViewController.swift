@@ -59,7 +59,7 @@ final class LiveViewViewController: UIViewController {
                 : Parameter(title: "ISO", property: 0xD21E),
             Parameter(title: "SHUTTER", property: 0xD20D),
             Parameter(title: "IRIS", property: 0x5007),
-            Parameter(title: "WB", property: 0x5005)
+            Parameter(title: "K", property: 0xD20F)
         ]
     }
 
@@ -67,7 +67,7 @@ final class LiveViewViewController: UIViewController {
         [
             Parameter(title: "FPS", property: 0xD286),
             Parameter(title: "FOCUS", property: 0x500A),
-            Parameter(title: "KELVIN", property: 0xD20F),
+            Parameter(title: "WB MODE", property: 0x5005),
             Parameter(title: "AREA", property: 0xD22C),
             Parameter(title: "LOG", property: 0xE000),
             Parameter(title: "FORMAT", property: 0xD241),
