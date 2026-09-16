@@ -1,4 +1,5 @@
 import UIKit
+import ImageIO
 
 final class LiveViewViewController: UIViewController {
     private let model = CameraViewModel.shared
@@ -10,12 +11,22 @@ final class LiveViewViewController: UIViewController {
     private let recordButton = UIButton(type: .system)
     private let infoStack = UIStackView()
 
-    private var frameTimer: Timer?
+    private let decodeQueue = DispatchQueue(
+        label: "sony.liveview.jpeg.decode",
+        qos: .userInteractive
+    )
+
     private var stateObserver: NSObjectProtocol?
     private var frameInFlight = false
-    private var frameCount = 0
+    private var decodeInFlight = false
+    private var liveRunning = false
+    private var generation = 0
+
+    private var displayedFrames = 0
     private var fpsWindowStart = Date()
     private var currentFPS: Double = 0
+    private var lastRoundTripMilliseconds: Double = 0
+    private var lastOffStateRefresh = Date.distantPast
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -113,6 +124,7 @@ final class LiveViewViewController: UIViewController {
             queue: .main
         ) { [weak self] _ in
             self?.renderState()
+            self?.kickLiveViewIfReady()
         }
 
         renderState()
@@ -129,7 +141,6 @@ final class LiveViewViewController: UIViewController {
     }
 
     deinit {
-        frameTimer?.invalidate()
         if let stateObserver {
             NotificationCenter.default.removeObserver(stateObserver)
         }
@@ -161,56 +172,157 @@ final class LiveViewViewController: UIViewController {
     }
 
     private func startLiveView() {
-        frameTimer?.invalidate()
+        generation &+= 1
+        liveRunning = true
         frameInFlight = false
-        frameCount = 0
+        decodeInFlight = false
+        displayedFrames = 0
         currentFPS = 0
+        lastRoundTripMilliseconds = 0
         fpsWindowStart = Date()
         fpsLabel.text = "0.0 fps"
+        model.setLiveViewActive(true)
 
-        frameTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
-            self?.requestFrame()
-        }
-        frameTimer?.tolerance = 0.02
-        requestFrame()
+        let token = generation
+        configureHighestCameraQuality(generation: token)
     }
 
     private func stopLiveView() {
-        frameTimer?.invalidate()
-        frameTimer = nil
+        generation &+= 1
+        liveRunning = false
         frameInFlight = false
+        model.setLiveViewActive(false)
     }
 
-    private func requestFrame() {
-        guard model.connected, !frameInFlight else { return }
+    private func configureHighestCameraQuality(generation token: Int) {
+        guard liveRunning, token == generation else { return }
 
-        guard model.current(for: 0xD221) == 1 else {
-            statusLabel.text = model.current(for: 0xD221) == nil
-                ? "Waiting for Sony Live View status (D221)…"
-                : "FX3 Live View status is OFF (D221 != 1)."
+        // D26A is Sony's Live View image-quality property in the working FX3
+        // implementation: 0x01 = Low, 0x02 = High. Keep the camera-reported
+        // property authoritative; only request HIGH when the camera exposes it
+        // as writable/enabled.
+        if model.writable(0xD26A),
+           model.current(for: 0xD26A) != 0x02 {
+            statusLabel.text = "Requesting Sony Live View HIGH quality…"
+            model.set(0xD26A, to: 0x02) { [weak self] message in
+                guard let self, self.liveRunning, token == self.generation else { return }
+                self.statusLabel.text = message
+                self.kickLiveViewIfReady()
+            }
+        } else {
+            kickLiveViewIfReady()
+        }
+    }
+
+    private func kickLiveViewIfReady() {
+        guard liveRunning, model.connected, !frameInFlight else { return }
+
+        if model.current(for: 0xD221) == 1 {
+            requestNextFrame(generation: generation)
             return
         }
 
+        statusLabel.text = model.current(for: 0xD221) == nil
+            ? "Waiting for Sony Live View status (D221)…"
+            : "FX3 Live View status is OFF (D221 != 1)."
+
+        // While no frame stream is running, refresh slowly so firmware that
+        // omits the D221 event can still recover. Once frames start, normal
+        // 0x9209 polling remains suspended to keep the command channel free.
+        if Date().timeIntervalSince(lastOffStateRefresh) >= 1.0 {
+            lastOffStateRefresh = Date()
+            model.refresh { [weak self] _ in
+                self?.kickLiveViewIfReady()
+            }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+                self?.kickLiveViewIfReady()
+            }
+        }
+    }
+
+    private func requestNextFrame(generation token: Int) {
+        guard liveRunning,
+              token == generation,
+              model.connected,
+              !frameInFlight,
+              model.current(for: 0xD221) == 1
+        else { return }
+
         frameInFlight = true
+        let requestStarted = CFAbsoluteTimeGetCurrent()
+
         model.requestLiveViewFrame { [weak self] data, message in
             guard let self else { return }
             self.frameInFlight = false
 
-            guard let data, let image = UIImage(data: data) else {
+            guard self.liveRunning, token == self.generation else { return }
+
+            self.lastRoundTripMilliseconds =
+                (CFAbsoluteTimeGetCurrent() - requestStarted) * 1000.0
+
+            if let data {
+                self.decodeIfPossible(data, generation: token)
+            } else {
                 self.statusLabel.text = message
-                return
             }
 
-            self.imageView.image = image
-            self.statusLabel.text = "LIVE • \(Int(image.size.width))×\(Int(image.size.height))"
-            self.frameCount += 1
+            // No fixed timer/throttle. Yield one main-loop turn so REC/property
+            // commands can enter the shared serial PTP queue, then immediately
+            // request the next Sony frame. This gives natural back-pressure:
+            // only one camera frame request exists at a time.
+            DispatchQueue.main.async { [weak self] in
+                self?.requestNextFrame(generation: token)
+            }
+        }
+    }
 
-            let elapsed = Date().timeIntervalSince(self.fpsWindowStart)
-            if elapsed >= 1.0 {
-                self.currentFPS = Double(self.frameCount) / elapsed
-                self.frameCount = 0
-                self.fpsWindowStart = Date()
-                self.fpsLabel.text = String(format: "%.1f fps", self.currentFPS)
+    private func decodeIfPossible(_ data: Data, generation token: Int) {
+        // Never queue old frames behind a slow decoder. Dropping a frame keeps
+        // latency bounded; the newest frame is more valuable for monitoring.
+        guard !decodeInFlight else { return }
+        decodeInFlight = true
+
+        decodeQueue.async { [weak self] in
+            guard let self else { return }
+
+            let options = [
+                kCGImageSourceShouldCache: true,
+                kCGImageSourceShouldCacheImmediately: true
+            ] as CFDictionary
+
+            let source = CGImageSourceCreateWithData(data as CFData, options)
+            let cgImage = source.flatMap {
+                CGImageSourceCreateImageAtIndex($0, 0, options)
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.decodeInFlight = false
+
+                guard self.liveRunning,
+                      token == self.generation,
+                      let cgImage
+                else { return }
+
+                self.imageView.image = UIImage(cgImage: cgImage)
+                self.displayedFrames += 1
+
+                let elapsed = Date().timeIntervalSince(self.fpsWindowStart)
+                if elapsed >= 1.0 {
+                    self.currentFPS = Double(self.displayedFrames) / elapsed
+                    self.displayedFrames = 0
+                    self.fpsWindowStart = Date()
+                }
+
+                let quality = self.model.current(for: 0xD26A) == 0x02 ? "HQ" : "LIVE"
+                self.fpsLabel.text = String(
+                    format: "%.1f fps • %.0f ms",
+                    self.currentFPS,
+                    self.lastRoundTripMilliseconds
+                )
+                self.statusLabel.text =
+                    "\(quality) • \(cgImage.width)×\(cgImage.height)"
             }
         }
     }
