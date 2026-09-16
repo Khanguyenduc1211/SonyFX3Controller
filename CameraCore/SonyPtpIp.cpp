@@ -540,6 +540,44 @@ bool SonyPtpIp::control(uint16_t controlCode, const Value& value, std::string& e
     return operation(kOpSdioControl, {controlCode}, &encoded.bytes, nullptr, error);
 }
 
+bool SonyPtpIp::remoteTouch(uint16_t x, uint16_t y, std::string& error) {
+    const auto* enable = state_.property(kPropRemoteTouchOperationEnableStatus);
+    if (!enable || !enable->enabled || enable->current.unsignedNumber() != 0x01) {
+        error = "Sony Remote Touch Operation is not enabled by the camera";
+        return false;
+    }
+
+    if (x > 639 || y > 479) {
+        error = "Sony Remote Touch coordinate is outside X=0..639 / Y=0..479";
+        return false;
+    }
+
+    // Sony Camera Remote SDK: CrControlCode_RemoteTouchOperation is UInt32;
+    // upper 16 bits are X and lower 16 bits are Y.
+    const uint32_t packed = (uint32_t(x) << 16) | uint32_t(y);
+    return control(kCtrlRemoteTouchOperation,
+                   Value::number(kDataUInt32, packed),
+                   error);
+}
+
+bool SonyPtpIp::cancelRemoteTouch(std::string& error) {
+    const auto* enable = state_.property(kPropCancelRemoteTouchOperationEnableStatus);
+    if (!enable || !enable->enabled || enable->current.unsignedNumber() != 0x01) {
+        error = "Sony Cancel Remote Touch Operation is not enabled by the camera";
+        return false;
+    }
+
+    // Sony requires a matched DOWN then UP sequence for cancel.
+    if (!control(kCtrlCancelRemoteTouchOperation,
+                 Value::number(kDataUInt16, kSonyButtonDown),
+                 error)) {
+        return false;
+    }
+    return control(kCtrlCancelRemoteTouchOperation,
+                   Value::number(kDataUInt16, kSonyButtonUp),
+                   error);
+}
+
 bool SonyPtpIp::startRecording(std::string& error) {
     if (!control(kSonyCtrlMovieRec, Value::number(kDataUInt32, kSonyButtonDown), error)) return false;
     return verifyRecordState(RecordState::recording, error);
