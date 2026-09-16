@@ -36,6 +36,8 @@ public:
     bool fetchLiveViewJpeg(std::vector<uint8_t>& jpeg, std::string& error);
     bool setProperty(uint16_t property, const Value& target, std::string& error);
     bool control(uint16_t controlCode, const Value& value, std::string& error);
+    bool remoteTouch(uint16_t x, uint16_t y, std::string& error);
+    bool cancelRemoteTouch(std::string& error);
     bool startRecording(std::string& error);
     bool stopRecording(std::string& error);
 
