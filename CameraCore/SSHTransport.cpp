@@ -316,6 +316,7 @@ bool SSHTransport::writeCommand(const std::vector<uint8_t>& bytes, std::string& 
 bool SSHTransport::writeEvent(const std::vector<uint8_t>& bytes, std::string& error) { return writeChannel(eventChannel_, bytes, error); }
 bool SSHTransport::readCommandExact(uint8_t* d, size_t n, uint32_t t, std::string& e) { return readChannelExact(commandChannel_, d, n, t, e); }
 bool SSHTransport::readEventExact(uint8_t* d, size_t n, uint32_t t, std::string& e) { return readChannelExact(eventChannel_, d, n, t, e); }
+bool SSHTransport::eventReadable() const { return eventChannel_ && libssh2_poll_channel_read(eventChannel_, 0) > 0; }
 
 std::string SSHTransport::lastSshError() const {
     if (!session_) return "no SSH session";
