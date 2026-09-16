@@ -27,19 +27,6 @@ std::vector<uint8_t> ptpString(const std::string& text) {
 SonyPtpIp::SonyPtpIp() = default;
 SonyPtpIp::~SonyPtpIp() { disconnect(); }
 
-void SonyPtpIp::setClientGuid(const std::string& uuidText) {
-    std::array<uint8_t, 16> candidate{0x53,0x4F,0x4E,0x59,0x49,0x4F,0x53,0x31};
-    size_t index = 8;
-    for (size_t i = 0; i + 1 < uuidText.size() && index < candidate.size();) {
-        if (uuidText[i] == '-') { ++i; continue; }
-        auto nibble = [](char c) -> int { if (c >= '0' && c <= '9') return c - '0'; if (c >= 'a' && c <= 'f') return c - 'a' + 10; if (c >= 'A' && c <= 'F') return c - 'A' + 10; return -1; };
-        const int high = nibble(uuidText[i++]); if (i >= uuidText.size()) break; const int low = nibble(uuidText[i++]);
-        if (high < 0 || low < 0) return;
-        candidate[index++] = static_cast<uint8_t>((high << 4) | low);
-    }
-    if (index == candidate.size()) clientGuid_ = candidate;
-}
-
 ConnectResult SonyPtpIp::connect(const std::string& host, const std::string& username, const std::string& password, const std::string& trustedFingerprint) {
     disconnect(); transport_ = std::make_unique<SSHTransport>();
     const auto verified = transport_->connectAndVerify(host, 22, trustedFingerprint);
@@ -63,7 +50,11 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
         // PTP/IP clients must present a unique GUID.  A constant client GUID
         // makes a Sony camera retain/replace a previous session instead of
         // reliably acknowledging a reconnect.
-        body.append(std::vector<uint8_t>(clientGuid_.begin(), clientGuid_.end())); body.append(ptpString("SonyFX3Controller")); body.u32(0x00010000);
+        // Same Sony client GUID layout as the proven ESP32 controller; only
+        // its final eight bytes are the unique client identity.
+        std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x45,0x53,0x50,0x32};
+        arc4random_buf(guid.data() + 8, 8);
+        body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpString("SonyFX3Controller")); body.u32(0x00010000);
     }
     if (!writePacket(eventChannel, eventChannel ? kInitEventRequest : kInitCommandRequest, body.bytes, error)) return false;
     Packet reply; if (!readPacket(eventChannel, reply, error)) return false;
@@ -133,7 +124,14 @@ bool SonyPtpIp::sendData(uint32_t transaction, const std::vector<uint8_t>& data,
 bool SonyPtpIp::operation(uint16_t opcode, const std::vector<uint32_t>& parameters, const std::vector<uint8_t>* outgoingData, std::vector<uint8_t>* incomingData, std::string& error) {
     if (!transport_ || !transport_->connected()) { error = "Camera is not connected"; return false; }
     const uint32_t tx = transaction_++;
-    Writer request; request.u32(outgoingData ? kDataPhaseOut : (incomingData ? kDataPhaseIn : 0)); request.u16(opcode); request.u32(tx);
+    // PTP/IP DataPhaseInfo is 1 for "no data or data-in" and 2 for data-out.
+    // Never send 0 here: OpenSession has no data phase, but still uses value 1.
+    // Some responders close the PTP/IP connection when an unsupported/unknown
+    // DataPhaseInfo value is received.
+    Writer request;
+    request.u32(outgoingData ? kDataPhaseOut : kDataPhaseIn);
+    request.u16(opcode);
+    request.u32(tx);
     for (uint32_t p : parameters) request.u32(p);
     if (!writePacket(false, kOperationRequest, request.bytes, error)) return false;
     if (outgoingData && !sendData(tx, *outgoingData, error)) return false;
