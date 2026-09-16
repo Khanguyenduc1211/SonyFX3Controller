@@ -74,6 +74,8 @@ constexpr uint16_t kDataInt32 = 0x0005;
 constexpr uint16_t kDataUInt32 = 0x0006;
 constexpr uint16_t kDataInt64 = 0x0007;
 constexpr uint16_t kDataUInt64 = 0x0008;
+constexpr uint16_t kDataInt128 = 0x0009;
+constexpr uint16_t kDataUInt128 = 0x000A;
 constexpr uint16_t kDataString = 0xFFFF;
 
 struct Value {
@@ -83,13 +85,17 @@ struct Value {
     bool empty() const { return bytes.empty(); }
 
     int64_t signedNumber() const {
-        uint64_t number = unsignedNumber();
-        switch (bytes.size()) {
-        case 1: return static_cast<int8_t>(number);
-        case 2: return static_cast<int16_t>(number);
-        case 4: return static_cast<int32_t>(number);
-        case 8: return static_cast<int64_t>(number);
-        default: return 0;
+        const uint64_t number = unsignedNumber();
+
+        // Preserve unsigned Sony enum/property values such as 0x8012.
+        // The old implementation sign-extended purely from byte width, which
+        // turned valid UINT16/UINT32 camera values into negative Swift values.
+        switch (type) {
+        case kDataInt8:  return static_cast<int8_t>(number);
+        case kDataInt16: return static_cast<int16_t>(number);
+        case kDataInt32: return static_cast<int32_t>(number);
+        case kDataInt64: return static_cast<int64_t>(number);
+        default:         return static_cast<int64_t>(number);
         }
     }
 
@@ -114,6 +120,7 @@ struct Value {
         case kDataInt16: case kDataUInt16: return 2;
         case kDataInt32: case kDataUInt32: return 4;
         case kDataInt64: case kDataUInt64: return 8;
+        case kDataInt128: case kDataUInt128: return 16;
         default: return 0;
         }
     }
@@ -171,9 +178,9 @@ inline Value readValue(Reader& reader, uint16_t type) {
         return out;
     }
     // PTP arrays are their scalar type plus 0x4000 and begin with UInt32 count.
-    const uint16_t elementType = type & 0x3FFF;
+    const uint16_t elementType = type & 0x0FFF;
     const size_t elementSize = Value::scalarSize(elementType);
-    if ((type & 0x4000) && elementSize) {
+    if ((type & 0xF000) == 0x4000 && elementSize) {
         const uint32_t count = reader.u32();
         Writer encoded; encoded.u32(count); encoded.append(reader.take(size_t(count) * elementSize));
         out.bytes = std::move(encoded.bytes); return out;
@@ -199,7 +206,7 @@ inline std::vector<PropertyDescriptor> parseAllPropertyInfo(const std::vector<ui
             p.rangeMinimum = readValue(reader, p.type);
             p.rangeMaximum = readValue(reader, p.type);
             p.rangeStep = readValue(reader, p.type);
-        } else if (p.form == 2) {
+        } else if (p.form != 0) {
             const uint16_t setCount = reader.u16();
             p.setValues.reserve(setCount);
             for (uint16_t j = 0; j < setCount; ++j) p.setValues.push_back(readValue(reader, p.type));
@@ -209,7 +216,6 @@ inline std::vector<PropertyDescriptor> parseAllPropertyInfo(const std::vector<ui
         }
         properties.push_back(std::move(p));
     }
-    if (reader.remaining() != 0) throw std::runtime_error("unexpected bytes after PTP property dataset");
     return properties;
 }
 
