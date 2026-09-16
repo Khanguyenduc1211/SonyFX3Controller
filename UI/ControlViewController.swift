@@ -143,8 +143,8 @@ final class ControlViewController: UIViewController {
                 title: propertyNames[property] ?? "Setting",
                 values: values,
                 current: model.current(for: property),
-                labels: { [model] value in
-                    model.displayValue(for: property, value: value)
+                labels: { [weak self] value in
+                    self?.model.displayValue(for: property, value: value) ?? String(value)
                 }
             ) { [weak self] value in
                 self?.model.set(property, to: value) { message in
