@@ -1,7 +1,9 @@
 #include "SonyPtpIp.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cstring>
 #include <cstdlib>
 #include <thread>
@@ -13,6 +15,44 @@ constexpr uint32_t kOperationRequest = 6, kOperationResponse = 7, kEvent = 8;
 constexpr uint32_t kStartData = 9, kData = 10, kEndData = 12;
 constexpr uint32_t kProbeRequest = 13, kProbeResponse = 14;
 constexpr uint32_t kDataPhaseIn = 1, kDataPhaseOut = 2;
+
+// The proven ESP32 controller uses the ASCII prefix "SONYESP2" in the
+// first eight bytes and a persistent unique value in the final eight bytes.
+// The bridge supplies a persistent UUID string through setClientGuid().
+std::array<uint8_t, 16> gClientGuid{0x53,0x4F,0x4E,0x59,0x45,0x53,0x50,0x32};
+bool gClientGuidConfigured = false;
+
+int hexNibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+bool parseClientGuidTail(const std::string& text, std::array<uint8_t, 8>& tail) {
+    // Accept a normal UUID string:
+    // XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+    // Also accept the same 32 hex digits without separators.
+    std::string hex;
+    hex.reserve(32);
+    for (char c : text) {
+        if (std::isxdigit(static_cast<unsigned char>(c))) {
+            hex.push_back(c);
+        }
+    }
+    if (hex.size() != 32) return false;
+
+    std::array<uint8_t, 16> bytes{};
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        const int hi = hexNibble(hex[i * 2]);
+        const int lo = hexNibble(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) return false;
+        bytes[i] = static_cast<uint8_t>((hi << 4) | lo);
+    }
+
+    std::copy(bytes.begin() + 8, bytes.end(), tail.begin());
+    return true;
+}
 
 uint32_t le32(const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; }
 uint16_t le16(const uint8_t* p) { return uint16_t(p[0]) | uint16_t(p[1]) << 8; }
@@ -28,6 +68,20 @@ std::vector<uint8_t> ptpInitiatorName(const std::string& text) {
 
 SonyPtpIp::SonyPtpIp() = default;
 SonyPtpIp::~SonyPtpIp() { disconnect(); }
+
+void SonyPtpIp::setClientGuid(const std::string& clientGuid) {
+    std::array<uint8_t, 8> tail{};
+    if (!parseClientGuidTail(clientGuid, tail)) {
+        // Keep the existing fallback behavior if the bridge ever supplies a
+        // non-UUID string. Do not corrupt the PTP/IP initiator GUID.
+        gClientGuidConfigured = false;
+        return;
+    }
+
+    gClientGuid = {0x53,0x4F,0x4E,0x59,0x45,0x53,0x50,0x32};
+    std::copy(tail.begin(), tail.end(), gClientGuid.begin() + 8);
+    gClientGuidConfigured = true;
+}
 
 ConnectResult SonyPtpIp::connect(const std::string& host, const std::string& username, const std::string& password, const std::string& trustedFingerprint) {
     disconnect(); transport_ = std::make_unique<SSHTransport>();
@@ -55,8 +109,15 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
         // Same Sony client GUID layout as the proven ESP32 controller; only
         // its final eight bytes are the unique client identity.
         std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x45,0x53,0x50,0x32};
-        arc4random_buf(guid.data() + 8, 8);
-        body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpInitiatorName("SonyFX3Controller")); body.u32(0x00010000);
+        if (gClientGuidConfigured) {
+            guid = gClientGuid;
+        } else {
+            // Fallback only if setClientGuid() was not supplied a valid UUID.
+            arc4random_buf(guid.data() + 8, 8);
+        }
+        body.append(std::vector<uint8_t>(guid.begin(), guid.end()));
+        body.append(ptpInitiatorName("SonyFX3Controller"));
+        body.u32(0x00010000);
     }
     if (!writePacket(eventChannel, eventChannel ? kInitEventRequest : kInitCommandRequest, body.bytes, error)) return false;
     Packet reply; if (!readPacket(eventChannel, reply, error)) return false;
