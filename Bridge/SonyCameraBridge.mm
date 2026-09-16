@@ -210,6 +210,23 @@ NSString * const SonyCameraBridgeLogNotification = @"SonyCameraBridgeLog";
     });
 }
 
+- (void)requestLiveViewFrame:(void (^)(NSData * _Nullable, NSString *))completion {
+    dispatch_async(_queue, ^{
+        std::vector<uint8_t> jpeg;
+        std::string error;
+        const BOOL ok = self->_camera->fetchLiveViewJpeg(jpeg, error);
+
+        NSData *data = nil;
+        if (ok && !jpeg.empty()) {
+            data = [NSData dataWithBytes:jpeg.data() length:jpeg.size()];
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(data, ok ? @"Live View frame received" : @(error.c_str()));
+        });
+    });
+}
+
 - (NSDictionary<NSNumber *,NSDictionary *> *)stateSnapshot {
     return [_snapshot copy];
 }
