@@ -31,6 +31,8 @@ constexpr uint16_t kPropShutterSpeed = 0xD20D;
 constexpr uint16_t kPropFNumber = 0x5007;
 constexpr uint16_t kPropExposureMode = 0x500E;
 constexpr uint16_t kPropBatteryLevel = 0xD20E;
+constexpr uint16_t kPropSlot1RemainingTime = 0xD24A;
+constexpr uint16_t kPropSlot2RemainingTime = 0xD258;
 
 // White balance properties used by the working ESP32 controller.
 constexpr uint16_t kPropWhiteBalance = 0x5005;
@@ -41,7 +43,10 @@ constexpr uint16_t kPropWhiteBalanceAB = 0xD21C;
 // Focus properties / controls.
 constexpr uint16_t kPropFocusMode = 0x500A;
 constexpr uint16_t kPropFocusArea = 0xD22C;
-constexpr uint16_t kPropFocusPullEnable = 0xD235;
+constexpr uint16_t kPropFocusIndication = 0xD213;
+constexpr uint16_t kPropNearFarEnableStatus = 0xD235; // status/readback, not a writable enable switch
+constexpr uint16_t kPropFocusPositionSetting = 0xE042;
+constexpr uint16_t kPropFocusPositionCurrent = 0xE043;
 constexpr uint16_t kCtrlRelativeFocus = 0xD2D1;
 constexpr uint16_t kCtrlShutterS1 = 0xD2C1;
 constexpr uint16_t kCtrlShutterS2 = 0xD2C2;
