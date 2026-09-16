@@ -16,6 +16,7 @@ final class CameraViewModel {
     var onChange: (() -> Void)?
     private var statePoller: Timer?
     private var refreshInFlight = false
+    private(set) var liveViewActive = false
 
     private init() {
         NotificationCenter.default.addObserver(
@@ -414,11 +415,19 @@ final class CameraViewModel {
         }
     }
 
+    func setLiveViewActive(_ active: Bool) {
+        liveViewActive = active
+    }
+
     private func startPolling() {
         statePoller?.invalidate()
 
         statePoller = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self, self.connected, !self.refreshInFlight else { return }
+            guard let self,
+                  self.connected,
+                  !self.liveViewActive,
+                  !self.refreshInFlight
+            else { return }
             self.refreshInFlight = true
             self.bridge.refresh { [weak self] _, _ in
                 self?.refreshInFlight = false
