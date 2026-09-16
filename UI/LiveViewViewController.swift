@@ -18,6 +18,8 @@ final class LiveViewViewController: UIViewController {
     private let statusLabel = UILabel()
 
     private let parameterBar = UIView()
+    private let primaryControlBar = UIStackView()
+    private var primaryButtons: [UIButton] = []
     private let parameterCollection: UICollectionView
     private let recordButton = UIButton(type: .system)
 
@@ -50,29 +52,27 @@ final class LiveViewViewController: UIViewController {
     private var selectedParameter: Parameter?
     private var editorValues: [Int64] = []
 
+    private var primaryParameters: [Parameter] {
+        [
+            model.cineEIActive()
+                ? Parameter(title: "EI", property: 0xD022)
+                : Parameter(title: "ISO", property: 0xD21E),
+            Parameter(title: "SHUTTER", property: 0xD20D),
+            Parameter(title: "IRIS", property: 0x5007),
+            Parameter(title: "WB", property: 0x5005)
+        ]
+    }
+
     private var parameters: [Parameter] {
-        var items: [Parameter] = [
+        [
             Parameter(title: "FPS", property: 0xD286),
             Parameter(title: "FOCUS", property: 0x500A),
-            Parameter(title: "IRIS", property: 0x5007)
-        ]
-
-        if model.cineEIActive() {
-            items.append(Parameter(title: "EI", property: 0xD022))
-        } else {
-            items.append(Parameter(title: "ISO", property: 0xD21E))
-        }
-
-        items.append(contentsOf: [
-            Parameter(title: "SHUTTER", property: 0xD20D),
-            Parameter(title: "WB", property: 0x5005),
             Parameter(title: "KELVIN", property: 0xD20F),
             Parameter(title: "AREA", property: 0xD22C),
             Parameter(title: "LOG", property: 0xE000),
             Parameter(title: "FORMAT", property: 0xD241),
             Parameter(title: "REC SET", property: 0xD242)
-        ])
-        return items
+        ]
     }
 
     init() {
@@ -212,9 +212,30 @@ final class LiveViewViewController: UIViewController {
     }
 
     private func configureParameterBar() {
-        parameterBar.backgroundColor = UIColor.black.withAlphaComponent(0.88)
+        parameterBar.backgroundColor = UIColor.black.withAlphaComponent(0.90)
         parameterBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(parameterBar)
+
+        primaryControlBar.axis = .horizontal
+        primaryControlBar.distribution = .fillEqually
+        primaryControlBar.alignment = .fill
+        primaryControlBar.spacing = 1
+        primaryControlBar.translatesAutoresizingMaskIntoConstraints = false
+
+        for index in 0..<4 {
+            let button = UIButton(type: .system)
+            button.tag = index
+            button.titleLabel?.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
+            button.titleLabel?.numberOfLines = 2
+            button.titleLabel?.textAlignment = .center
+            button.tintColor = .white
+            button.backgroundColor = UIColor.white.withAlphaComponent(0.05)
+            button.layer.borderWidth = 0.5
+            button.layer.borderColor = UIColor.white.withAlphaComponent(0.14).cgColor
+            button.addTarget(self, action: #selector(primaryControlTapped(_:)), for: .touchUpInside)
+            primaryButtons.append(button)
+            primaryControlBar.addArrangedSubview(button)
+        }
 
         parameterCollection.backgroundColor = .clear
         parameterCollection.showsHorizontalScrollIndicator = false
@@ -228,15 +249,16 @@ final class LiveViewViewController: UIViewController {
         parameterCollection.translatesAutoresizingMaskIntoConstraints = false
 
         recordButton.setTitle("●", for: .normal)
-        recordButton.titleLabel?.font = .systemFont(ofSize: 31, weight: .bold)
+        recordButton.titleLabel?.font = .systemFont(ofSize: 28, weight: .bold)
         recordButton.tintColor = .red
         recordButton.backgroundColor = UIColor.white.withAlphaComponent(0.08)
         recordButton.layer.borderWidth = 2
         recordButton.layer.borderColor = UIColor.white.withAlphaComponent(0.75).cgColor
-        recordButton.layer.cornerRadius = 30
+        recordButton.layer.cornerRadius = 27
         recordButton.translatesAutoresizingMaskIntoConstraints = false
         recordButton.addTarget(self, action: #selector(toggleRecord), for: .touchUpInside)
 
+        parameterBar.addSubview(primaryControlBar)
         parameterBar.addSubview(parameterCollection)
         parameterBar.addSubview(recordButton)
 
@@ -244,18 +266,56 @@ final class LiveViewViewController: UIViewController {
             parameterBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             parameterBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             parameterBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            parameterBar.heightAnchor.constraint(equalToConstant: 82),
+            parameterBar.heightAnchor.constraint(equalToConstant: 142),
 
-            recordButton.trailingAnchor.constraint(equalTo: parameterBar.trailingAnchor, constant: -14),
-            recordButton.centerYAnchor.constraint(equalTo: parameterBar.centerYAnchor),
-            recordButton.widthAnchor.constraint(equalToConstant: 60),
-            recordButton.heightAnchor.constraint(equalToConstant: 60),
+            primaryControlBar.leadingAnchor.constraint(equalTo: parameterBar.leadingAnchor, constant: 8),
+            primaryControlBar.trailingAnchor.constraint(equalTo: parameterBar.trailingAnchor, constant: -8),
+            primaryControlBar.topAnchor.constraint(equalTo: parameterBar.topAnchor, constant: 7),
+            primaryControlBar.heightAnchor.constraint(equalToConstant: 62),
+
+            recordButton.trailingAnchor.constraint(equalTo: parameterBar.trailingAnchor, constant: -12),
+            recordButton.bottomAnchor.constraint(equalTo: parameterBar.bottomAnchor, constant: -8),
+            recordButton.widthAnchor.constraint(equalToConstant: 54),
+            recordButton.heightAnchor.constraint(equalToConstant: 54),
 
             parameterCollection.leadingAnchor.constraint(equalTo: parameterBar.leadingAnchor, constant: 8),
-            parameterCollection.trailingAnchor.constraint(equalTo: recordButton.leadingAnchor, constant: -12),
-            parameterCollection.topAnchor.constraint(equalTo: parameterBar.topAnchor, constant: 6),
+            parameterCollection.trailingAnchor.constraint(equalTo: recordButton.leadingAnchor, constant: -10),
+            parameterCollection.topAnchor.constraint(equalTo: primaryControlBar.bottomAnchor, constant: 5),
             parameterCollection.bottomAnchor.constraint(equalTo: parameterBar.bottomAnchor, constant: -6)
         ])
+    }
+
+    @objc private func primaryControlTapped(_ sender: UIButton) {
+        let items = primaryParameters
+        guard sender.tag >= 0, sender.tag < items.count else { return }
+        openEditor(for: items[sender.tag])
+        renderPrimaryControls()
+    }
+
+    private func renderPrimaryControls() {
+        let items = primaryParameters
+        for (index, button) in primaryButtons.enumerated() {
+            guard index < items.count else {
+                button.isHidden = true
+                continue
+            }
+
+            button.isHidden = false
+            let parameter = items[index]
+            let available = model.current(for: parameter.property) != nil
+            let values = model.values(for: parameter.property)
+            let editable = available && model.writable(parameter.property) && !values.isEmpty
+            let value = available ? model.displayCurrent(for: parameter.property) : "—"
+
+            button.setTitle("\(parameter.title)\n\(value)", for: .normal)
+            button.isEnabled = editable
+            button.alpha = available ? (editable ? 1.0 : 0.62) : 0.32
+
+            let selected = selectedParameter?.property == parameter.property
+            button.backgroundColor = selected
+                ? UIColor.white.withAlphaComponent(0.18)
+                : UIColor.white.withAlphaComponent(0.05)
+        }
     }
 
     private func configureEditor() {
@@ -472,6 +532,7 @@ final class LiveViewViewController: UIViewController {
     }
 
     private func renderCameraState() {
+        renderPrimaryControls()
         parameterCollection.reloadData()
         renderDiagnostics()
         renderBattery()
@@ -633,6 +694,7 @@ final class LiveViewViewController: UIViewController {
         selectedParameter = nil
         editorValues = []
         editorPanel.isHidden = true
+        renderPrimaryControls()
         parameterCollection.reloadData()
     }
 }
