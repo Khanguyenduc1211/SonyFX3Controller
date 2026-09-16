@@ -24,22 +24,42 @@ constexpr uint16_t kOpSdioControl = 0x9207;
 constexpr uint16_t kOpGetAllPropertyInfo = 0x9209;
 constexpr uint16_t kOpGetVendorVersion = 0x9216;
 
-constexpr uint16_t kPropRecordState = 0xD21D;
+// Camera state/readback properties.
+constexpr uint16_t kPropRecordState = 0xD21D;       // recording status/readback
 constexpr uint16_t kPropIso = 0xD21E;
+constexpr uint16_t kPropShutterSpeed = 0xD20D;
+constexpr uint16_t kPropFNumber = 0x5007;
 constexpr uint16_t kPropExposureMode = 0x500E;
+constexpr uint16_t kPropBatteryLevel = 0xD20E;
+
+// White balance properties used by the working ESP32 controller.
 constexpr uint16_t kPropWhiteBalance = 0x5005;
+constexpr uint16_t kPropColorTemperature = 0xD20F;
+constexpr uint16_t kPropWhiteBalanceGM = 0xD210;
+constexpr uint16_t kPropWhiteBalanceAB = 0xD21C;
+
+// Focus properties / controls.
 constexpr uint16_t kPropFocusMode = 0x500A;
 constexpr uint16_t kPropFocusArea = 0xD22C;
 constexpr uint16_t kPropFocusPullEnable = 0xD235;
 constexpr uint16_t kCtrlRelativeFocus = 0xD2D1;
 constexpr uint16_t kCtrlShutterS1 = 0xD2C1;
+constexpr uint16_t kCtrlShutterS2 = 0xD2C2;
 
-constexpr uint16_t kPropFileFormat = 0xD241;
-constexpr uint16_t kPropFrameRate = 0xD286;
-constexpr uint16_t kPropRecordSetting = 0xD242;
-constexpr uint16_t kPropProxyRecording = 0xD109;
-constexpr uint16_t kPropProxyFormat = 0xD0D0;
-constexpr uint16_t kPropProxyBitrate = 0xD0D1;
+// REC is a CONTROL code, not the D21D readback property.
+constexpr uint16_t kCtrlMovieRec = 0xD2C8;
+
+// Movie / S&Q / proxy properties verified against the working ESP32 controller.
+constexpr uint16_t kPropFileFormat = 0xD241;          // UINT8
+constexpr uint16_t kPropRecordSetting = 0xD242;       // UINT16
+constexpr uint16_t kPropFrameRate = 0xD286;           // UINT8
+constexpr uint16_t kPropSqCaptureFrameRate = 0xD0D0;  // UINT8
+constexpr uint16_t kPropSqRecordSetting = 0xD0D1;     // UINT16
+constexpr uint16_t kPropProxyRecording = 0xD109;      // UINT16
+
+// Compatibility aliases only. D0D0/D0D1 are S&Q fields, not proxy format/bitrate.
+constexpr uint16_t kPropProxyFormat = kPropSqCaptureFrameRate;
+constexpr uint16_t kPropProxyBitrate = kPropSqRecordSetting;
 
 constexpr uint16_t kPropCineEiMode = 0xE000;
 constexpr uint16_t kPropBaseIso = 0xD020;
