@@ -8,7 +8,7 @@
 
 namespace sony {
 namespace {
-constexpr uint32_t kInitCommandRequest = 1, kInitCommandAck = 2, kInitEventRequest = 3, kInitEventAck = 4;
+constexpr uint32_t kInitCommandRequest = 1, kInitCommandAck = 2, kInitEventRequest = 3, kInitEventAck = 4, kInitFail = 5;
 constexpr uint32_t kOperationRequest = 6, kOperationResponse = 7, kEvent = 8;
 constexpr uint32_t kStartData = 9, kData = 10, kEndData = 12;
 constexpr uint32_t kProbeRequest = 13, kProbeResponse = 14;
@@ -16,10 +16,12 @@ constexpr uint32_t kDataPhaseIn = 1, kDataPhaseOut = 2;
 
 uint32_t le32(const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; }
 uint16_t le16(const uint8_t* p) { return uint16_t(p[0]) | uint16_t(p[1]) << 8; }
-std::vector<uint8_t> ptpString(const std::string& text) {
-    Writer out; const auto count = static_cast<uint8_t>(std::min<size_t>(text.size() + 1, 255)); out.u8(count);
-    for (size_t i = 0; i + 1 < count; ++i) out.u16(static_cast<uint8_t>(text[i]));
-    if (count) out.u16(0);
+std::vector<uint8_t> ptpInitiatorName(const std::string& text) {
+    // PTP/IP InitCommandRequest InitiatorName is UTF-16LE + NUL.
+    // It is NOT a PTP dataset string and therefore has no leading UINT8 count.
+    Writer out;
+    for (unsigned char ch : text) out.u16(ch);
+    out.u16(0);
     return out.bytes;
 }
 }
@@ -54,11 +56,16 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
         // its final eight bytes are the unique client identity.
         std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x45,0x53,0x50,0x32};
         arc4random_buf(guid.data() + 8, 8);
-        body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpString("SonyFX3Controller")); body.u32(0x00010000);
+        body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpInitiatorName("SonyFX3Controller")); body.u32(0x00010000);
     }
     if (!writePacket(eventChannel, eventChannel ? kInitEventRequest : kInitCommandRequest, body.bytes, error)) return false;
     Packet reply; if (!readPacket(eventChannel, reply, error)) return false;
     const uint32_t expected = eventChannel ? kInitEventAck : kInitCommandAck;
+    if (reply.type == kInitFail) {
+        const uint32_t reason = reply.payload.size() >= 4 ? le32(reply.payload.data()) : 0;
+        error = "Camera rejected PTP/IP initialization (reason " + std::to_string(reason) + ")";
+        return false;
+    }
     if (reply.type != expected) { error = "Unexpected PTP/IP initialization packet"; return false; }
     if (!eventChannel) {
         if (reply.payload.size() < 4) { error = "PTP/IP Init_Command_Ack has no connection number"; return false; }
@@ -94,7 +101,7 @@ bool SonyPtpIp::initializePtp(std::string& error) {
     }
     // D25A is a property write (HOST_PC = 1), not an SDIO control command.
     const auto hostPc = Value::number(kDataUInt8, 1);
-    if (!operation(kOpSetProperty, {0xD25A, 0}, &hostPc.bytes, nullptr, error)) return false;
+    if (!operation(kOpSetProperty, {0xD25A}, &hostPc.bytes, nullptr, error)) return false;
     return true;
 }
 
@@ -173,12 +180,18 @@ bool SonyPtpIp::refresh(std::string& error) {
 
 bool SonyPtpIp::setProperty(uint16_t property, const Value& target, std::string& error) {
     if (!state_.canWrite(property)) { error = "Camera reports this property is unavailable or read-only"; return false; }
-    if (!operation(kOpSetProperty, {property, isExtended(property) ? 1u : 0u}, &target.bytes, nullptr, error)) return false;
+
+    std::vector<uint32_t> parameters{property};
+    if (isExtended(property)) parameters.push_back(1u);
+
+    if (!operation(kOpSetProperty, parameters, &target.bytes, nullptr, error)) return false;
     return refresh(error);
 }
 
 bool SonyPtpIp::control(uint16_t controlCode, const Value& value, std::string& error) {
-    if (!operation(kOpSdioControl, {controlCode, isExtended(controlCode) ? 1u : 0u}, &value.bytes, nullptr, error)) return false;
+    // Working ESP32/Sony flow sends exactly one operation parameter for 0x9207:
+    // the control/property code. The control value is carried in the data-out phase.
+    if (!operation(kOpSdioControl, {controlCode}, &value.bytes, nullptr, error)) return false;
     return true;
 }
 
