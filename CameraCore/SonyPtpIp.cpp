@@ -3,6 +3,7 @@
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
 #include <thread>
 
 namespace sony {
@@ -45,7 +46,11 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
         // Init_Event_Request uses the connection number from Init_Command_Ack.
         body.u32(connectionId_);
     } else {
-        std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x46,0x58,0x33,0x43,0x4F,0x4E,0x54,0x52,0x4F,0x4C,0x4C,0x52};
+        // PTP/IP clients must present a unique GUID.  A constant client GUID
+        // makes a Sony camera retain/replace a previous session instead of
+        // reliably acknowledging a reconnect.
+        std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x46,0x58,0x33,0x43};
+        arc4random_buf(guid.data() + 8, 8);
         body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpString("SonyFX3Controller")); body.u32(0x00010000);
     }
     if (!writePacket(eventChannel, eventChannel ? kInitEventRequest : kInitCommandRequest, body.bytes, error)) return false;
