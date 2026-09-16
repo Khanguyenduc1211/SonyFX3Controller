@@ -106,7 +106,10 @@ final class FocusViewController: UIViewController {
             ValuePickerViewController(
                 title: propertyNames[property] ?? "Focus",
                 values: values,
-                current: model.current(for: readback)
+                current: model.current(for: readback),
+                labels: { [model] value in
+                    model.displayValue(for: property, value: value)
+                }
             ) { [weak self] value in
                 self?.model.set(property, to: value) {
                     self?.status.text = $0
@@ -170,7 +173,7 @@ final class FocusViewController: UIViewController {
             let name = propertyNames[property] ?? String(format: "0x%04X", property)
 
             if let value = model.current(for: readback) {
-                button.setTitle("  \(name)   •   \(value)", for: .normal)
+                button.setTitle("  \(name)   •   \(model.displayValue(for: readback, value: value))", for: .normal)
             } else {
                 button.setTitle("  \(name)   •   —", for: .normal)
             }
