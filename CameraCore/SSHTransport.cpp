@@ -65,6 +65,8 @@ SSHResult SSHTransport::connectAndVerify(const std::string& host, uint16_t port,
 
 SSHResult SSHTransport::authenticatePassword(const std::string& username, const std::string& password) {
     if (!session_) return {false, false, "SSH session is not connected", {}};
+    const char* methods = libssh2_userauth_list(session_, username.c_str(), static_cast<unsigned int>(username.size()));
+    const std::string advertisedMethods = methods ? methods : "(camera did not report methods)";
     if (libssh2_userauth_password_ex(session_, username.c_str(), static_cast<unsigned int>(username.size()), password.c_str(), static_cast<unsigned int>(password.size()), nullptr) == 0)
         return {true, false, "SSH password authentication completed", {}};
 
@@ -77,7 +79,7 @@ SSHResult SSHTransport::authenticatePassword(const std::string& username, const 
         session_, username.c_str(), static_cast<unsigned int>(username.size()), keyboardInteractivePasswordCallback);
     keyboardPassword_.clear();
     if (keyboardResult == 0) return {true, false, "SSH keyboard-interactive authentication completed", {}};
-    return {false, false, "Camera rejected SSH credentials (password: " + passwordFailure + "; keyboard-interactive: " + lastSshError() + ")", {}};
+    return {false, false, "Camera rejected SSH credentials. Offered methods: " + advertisedMethods + ". Password: " + passwordFailure + "; keyboard-interactive: " + lastSshError(), {}};
 }
 
 bool SSHTransport::openCameraTunnels(std::string& error) {
