@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <memory>
+#include <array>
 
 namespace sony {
 
@@ -29,6 +30,7 @@ public:
     const CameraState& state() const { return state_; }
     void setStateCallback(StateCallback callback) { stateCallback_ = std::move(callback); }
     void setEventCallback(EventCallback callback) { eventCallback_ = std::move(callback); }
+    void setClientGuid(const std::string& uuidText);
 
     bool refresh(std::string& error);
     bool setProperty(uint16_t property, const Value& target, std::string& error);
@@ -53,6 +55,7 @@ private:
     CameraState state_;
     uint32_t transaction_ = 1;
     uint32_t connectionId_ = 0;
+    std::array<uint8_t, 16> clientGuid_{0x53,0x4F,0x4E,0x59,0x49,0x4F,0x53,0x31};
     StateCallback stateCallback_;
     EventCallback eventCallback_;
 };

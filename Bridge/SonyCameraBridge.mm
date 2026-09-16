@@ -1,4 +1,5 @@
 #import "SonyCameraBridge.h"
+#import <UIKit/UIKit.h>
 
 #include "SonyPtpIp.hpp"
 
@@ -16,6 +17,7 @@ NSString * const SonyCameraBridgeLogNotification = @"SonyCameraBridgeLog";
         _queue = dispatch_queue_create("sony.camera.command.queue", DISPATCH_QUEUE_SERIAL);
         _snapshot = [NSMutableDictionary dictionary];
         _camera = std::make_unique<sony::SonyPtpIp>();
+        _camera->setClientGuid(UIDevice.currentDevice.identifierForVendor.UUIDString.UTF8String);
         __weak typeof(self) weakSelf = self;
         _camera->setStateCallback([weakSelf](const sony::CameraState &state) {
             typeof(self) self = weakSelf; if (!self) return;
