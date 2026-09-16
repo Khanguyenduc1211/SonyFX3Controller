@@ -13,4 +13,5 @@
   <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/><key>UISceneConfigurations</key><dict><key>UIWindowSceneSessionRoleApplication</key><array><dict><key>UISceneConfigurationName</key><string>Default Configuration</string><key>UISceneDelegateClassName</key><string>$(PRODUCT_MODULE_NAME).SceneDelegate</string></dict></array></dict></dict>
   <key>UILaunchScreen</key><dict/>
   <key>NSLocalNetworkUsageDescription</key><string>SonyFX3Controller connects to your Sony camera on the local network through its SSH remote-control service.</string>
+  <key>NSCameraUsageDescription</key><string>SonyFX3Controller uses a connected HDMI-to-UVC capture device for Sony Monitor &amp; Control style high-resolution Live View.</string>
 </dict></plist>
