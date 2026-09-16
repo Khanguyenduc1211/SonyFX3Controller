@@ -16,6 +16,7 @@ extern NSString * const SonyCameraBridgeLogNotification;
 - (void)setProperty:(uint16_t)property value:(int64_t)value completion:(void (^)(BOOL ok, NSString *message))completion;
 - (void)control:(uint16_t)control value:(int64_t)value completion:(void (^)(BOOL ok, NSString *message))completion;
 - (void)setRecording:(BOOL)recording completion:(void (^)(BOOL ok, NSString *message))completion;
+- (void)requestLiveViewFrame:(void (^)(NSData * _Nullable jpegData, NSString *message))completion;
 - (NSDictionary<NSNumber *, NSDictionary *> *)stateSnapshot;
 @end
 
