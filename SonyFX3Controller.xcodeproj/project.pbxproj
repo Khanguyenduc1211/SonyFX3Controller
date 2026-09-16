@@ -1,0 +1,88 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+
+/* Begin PBXBuildFile section */
+ A001 /* AppDelegate.swift */ = {isa = PBXBuildFile; fileRef = A101; };
+ A002 /* SceneDelegate.swift */ = {isa = PBXBuildFile; fileRef = A102; };
+ A003 /* CameraProfileStore.swift */ = {isa = PBXBuildFile; fileRef = A103; };
+ A004 /* Theme.swift */ = {isa = PBXBuildFile; fileRef = A104; };
+ A005 /* CameraViewModel.swift */ = {isa = PBXBuildFile; fileRef = A105; };
+ A006 /* MainTabBarController.swift */ = {isa = PBXBuildFile; fileRef = A106; };
+ A007 /* CameraConnectionViewController.swift */ = {isa = PBXBuildFile; fileRef = A107; };
+ A008 /* ValuePickerViewController.swift */ = {isa = PBXBuildFile; fileRef = A108; };
+ A009 /* ControlViewController.swift */ = {isa = PBXBuildFile; fileRef = A109; };
+ A010 /* FocusViewController.swift */ = {isa = PBXBuildFile; fileRef = A110; };
+ A011 /* RecordFormatViewController.swift */ = {isa = PBXBuildFile; fileRef = A111; };
+ A012 /* SonyCameraBridge.mm */ = {isa = PBXBuildFile; fileRef = A112; };
+ A013 /* SSHTransport.cpp */ = {isa = PBXBuildFile; fileRef = A113; };
+ A014 /* SonyPtpIp.cpp */ = {isa = PBXBuildFile; fileRef = A114; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+ A101 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+ A102 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+ A103 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraProfileStore.swift; sourceTree = "<group>"; };
+ A104 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+ A105 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraViewModel.swift; sourceTree = "<group>"; };
+ A106 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabBarController.swift; sourceTree = "<group>"; };
+ A107 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraConnectionViewController.swift; sourceTree = "<group>"; };
+ A108 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValuePickerViewController.swift; sourceTree = "<group>"; };
+ A109 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlViewController.swift; sourceTree = "<group>"; };
+ A110 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusViewController.swift; sourceTree = "<group>"; };
+ A111 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordFormatViewController.swift; sourceTree = "<group>"; };
+ A112 = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SonyCameraBridge.mm; sourceTree = "<group>"; };
+ A113 = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SSHTransport.cpp; sourceTree = "<group>"; };
+ A114 = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SonyPtpIp.cpp; sourceTree = "<group>"; };
+ A115 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SonyCameraBridge.h; sourceTree = "<group>"; };
+ A116 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SonyFX3Controller-Bridging-Header.h; sourceTree = "<group>"; };
+ A117 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSHTransport.hpp; sourceTree = "<group>"; };
+ A118 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SonyPtpIp.hpp; sourceTree = "<group>"; };
+ A119 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SonyProtocol.hpp; sourceTree = "<group>"; };
+ A120 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SonyCameraState.hpp; sourceTree = "<group>"; };
+ A121 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+ A122 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = SonyFX3Controller.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+ A201 = {isa = PBXGroup; children = (A202, A203, A204, A205, A122); sourceTree = "<group>"; };
+ A202 = {isa = PBXGroup; path = App; sourceTree = "<group>"; children = (A101, A102, A103, A116, A121); };
+ A203 = {isa = PBXGroup; path = UI; sourceTree = "<group>"; children = (A104, A105, A106, A107, A108, A109, A110, A111); };
+ A204 = {isa = PBXGroup; path = CameraCore; sourceTree = "<group>"; children = (A113, A114, A117, A118, A119, A120); };
+ A205 = {isa = PBXGroup; path = Bridge; sourceTree = "<group>"; children = (A112, A115); };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+ A301 = {isa = PBXNativeTarget; buildConfigurationList = A401; buildPhases = (A302, A303, A304); buildRules = (); dependencies = (); name = SonyFX3Controller; productName = SonyFX3Controller; productReference = A122; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+ A501 = {isa = PBXProject; attributes = { LastUpgradeCheck = 1600; TargetAttributes = { A301 = { CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = A402; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A201; productRefGroup = A201; projectDirPath = ""; projectRoot = ""; targets = (A301); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+ A302 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+/* Begin PBXSourcesBuildPhase section */
+ A303 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A001, A002, A003, A004, A005, A006, A007, A008, A009, A010, A011, A012, A013, A014); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+/* Begin PBXFrameworksBuildPhase section */
+ A304 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+ A601 = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_CXX_LANGUAGE_STANDARD = "gnu++17"; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; }; name = Debug; };
+ A602 = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_CXX_LANGUAGE_STANDARD = "gnu++17"; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; }; name = Release; };
+ A603 = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CLANG_CXX_LANGUAGE_STANDARD = "gnu++17"; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; HEADER_SEARCH_PATHS = ("$(SRCROOT)/CameraCore", "$(SRCROOT)/Bridge", "$(SRCROOT)/ThirdParty/libssh2/include"); INFOPLIST_FILE = App/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LIBRARY_SEARCH_PATHS = "$(SRCROOT)/ThirdParty/libssh2/lib"; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; MARKETING_VERSION = 1.0; OTHER_LDFLAGS = ("-lssh2", "-lmbedtls", "-lmbedx509", "-lmbedcrypto", "-lz"); PRODUCT_BUNDLE_IDENTIFIER = com.local.SonyFX3Controller; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = iphoneos; SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/App/SonyFX3Controller-Bridging-Header.h"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+ A604 = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = ""; CLANG_CXX_LANGUAGE_STANDARD = "gnu++17"; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; HEADER_SEARCH_PATHS = ("$(SRCROOT)/CameraCore", "$(SRCROOT)/Bridge", "$(SRCROOT)/ThirdParty/libssh2/include"); INFOPLIST_FILE = App/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LIBRARY_SEARCH_PATHS = "$(SRCROOT)/ThirdParty/libssh2/lib"; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; MARKETING_VERSION = 1.0; OTHER_LDFLAGS = ("-lssh2", "-lmbedtls", "-lmbedx509", "-lmbedcrypto", "-lz"); PRODUCT_BUNDLE_IDENTIFIER = com.local.SonyFX3Controller; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = iphoneos; SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/App/SonyFX3Controller-Bridging-Header.h"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+/* End XCBuildConfiguration section */
+/* Begin XCConfigurationList section */
+ A401 = {isa = XCConfigurationList; buildConfigurations = (A603, A604); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+ A402 = {isa = XCConfigurationList; buildConfigurations = (A601, A602); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+ };
+ rootObject = A501;
+}

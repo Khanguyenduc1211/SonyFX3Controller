@@ -1,0 +1,8 @@
+build/
+DerivedData/
+ThirdParty/source-cache/
+ThirdParty/libssh2/include/
+ThirdParty/libssh2/lib/
+*.xcuserstate
+xcuserdata/
+.DS_Store

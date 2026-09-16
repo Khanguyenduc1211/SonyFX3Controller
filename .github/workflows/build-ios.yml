@@ -1,0 +1,36 @@
+name: build-ios
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  iphoneos-arm64:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify protocol parser tests
+        run: bash Tests/run-core-tests.sh
+      - name: Build libssh2 and mbedTLS for iphoneos arm64
+        run: bash Scripts/build-libssh2-ios.sh
+      - name: Build unsigned iphoneos arm64 app
+        run: >-
+          xcodebuild -project SonyFX3Controller.xcodeproj -scheme SonyFX3Controller
+          -configuration Release -sdk iphoneos -derivedDataPath build/DerivedData
+          ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Package archive-only unsigned IPA
+        run: |-
+          mkdir -p build
+          mkdir -p build/Release-iphoneos
+          cp -R build/DerivedData/Build/Products/Release-iphoneos/SonyFX3Controller.app build/Release-iphoneos/
+          bash Scripts/package-unsigned-ipa.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SonyFX3Controller-iphoneos-arm64
+          path: |
+            build/SonyFX3Controller-unsigned.ipa
+            build/DerivedData/Build/Products/Release-iphoneos/SonyFX3Controller.app
+          if-no-files-found: error
