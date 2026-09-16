@@ -13,6 +13,7 @@ final class CameraViewModel {
     var recordingStartedAt: Date?
     var onChange: (() -> Void)?
     private var statePoller: Timer?
+    private var refreshInFlight = false
 
     private init() {
         NotificationCenter.default.addObserver(forName: Notification.Name("SonyCameraBridgeStateDidChange"), object: bridge, queue: .main) { [weak self] note in
@@ -42,7 +43,7 @@ final class CameraViewModel {
         profile = CameraProfile(host: host, username: username, fingerprint: fingerprint); CameraProfileStore.save(profile); CameraProfileStore.savePassword(password, for: profile)
         bridge.connectHost(host, username: username, password: password, trustedFingerprint: fingerprint) { [weak self] ok, _, message, _ in self?.connected = ok; if ok { self?.startPolling() }; self?.onChange?(); done(message) }
     }
-    func disconnect() { statePoller?.invalidate(); statePoller = nil; bridge.disconnect(); connected = false; properties = [:]; recordState = UInt32.max; onChange?() }
+    func disconnect() { statePoller?.invalidate(); statePoller = nil; refreshInFlight = false; bridge.disconnect(); connected = false; properties = [:]; recordState = UInt32.max; onChange?() }
     func refresh(_ done: @escaping (String) -> Void) { bridge.refresh { _, message in done(message) } }
     func values(for property: UInt16) -> [Int64] {
         guard let propertyState = properties[property] else { return [] }
@@ -65,8 +66,17 @@ final class CameraViewModel {
     func record(_ value: Bool, completion: @escaping (String) -> Void) { bridge.setRecording(value) { _, message in completion(message) } }
     private func startPolling() {
         statePoller?.invalidate()
-        // The event tunnel exists for Sony PTP/IP events; periodic 0x9209 also
-        // covers firmware that does not emit every property-change event.
-        statePoller = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.bridge.refresh { _, _ in } }
+
+        // Never queue another full 0x9209 while one is still running.
+        // Without this guard, an 8-second transport timeout plus a 1-second
+        // timer creates an ever-growing serial queue and REC/property commands
+        // appear to do nothing.
+        statePoller = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self, self.connected, !self.refreshInFlight else { return }
+            self.refreshInFlight = true
+            self.bridge.refresh { [weak self] _, _ in
+                self?.refreshInFlight = false
+            }
+        }
     }
 }
