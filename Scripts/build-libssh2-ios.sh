@@ -12,7 +12,10 @@ MBEDTLS_TAG="v3.6.2"
 
 mkdir -p "$CACHE" "$OUT/include" "$OUT/lib" "$BUILD"
 if [ ! -d "$CACHE/libssh2/.git" ]; then git clone --depth 1 --branch "$LIBSSH2_TAG" https://github.com/libssh2/libssh2.git "$CACHE/libssh2"; fi
-if [ ! -d "$CACHE/mbedtls/.git" ]; then git clone --depth 1 --branch "$MBEDTLS_TAG" https://github.com/Mbed-TLS/mbedtls.git "$CACHE/mbedtls"; fi
+if [ ! -d "$CACHE/mbedtls/.git" ]; then git clone --depth 1 --recurse-submodules --branch "$MBEDTLS_TAG" https://github.com/Mbed-TLS/mbedtls.git "$CACHE/mbedtls"; fi
+# Keep this idempotent for reruns using an Actions workspace/cache created by
+# an earlier version of the script without the required framework submodule.
+git -C "$CACHE/mbedtls" submodule update --init --recursive
 
 IOS=(-DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DCMAKE_BUILD_TYPE=Release)
 cmake -S "$CACHE/mbedtls" -B "$BUILD/mbedtls" "${IOS[@]}" -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DMBEDTLS_FATAL_WARNINGS=OFF -DCMAKE_INSTALL_PREFIX="$BUILD/prefix"
