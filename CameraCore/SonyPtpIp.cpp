@@ -292,6 +292,55 @@ bool SonyPtpIp::serviceEvents(std::string& error) {
     return true;
 }
 
+bool SonyPtpIp::fetchLiveViewJpeg(std::vector<uint8_t>& jpeg, std::string& error) {
+    jpeg.clear();
+
+    if (!transport_ || !transport_->connected()) {
+        error = "Camera is not connected";
+        return false;
+    }
+
+    const auto* liveView = state_.property(kPropLiveViewStatus);
+    if (!liveView || !liveView->enabled) {
+        error = "Sony Live View status D221 is unavailable";
+        return false;
+    }
+    if (liveView->current.unsignedNumber() != 0x01) {
+        error = "Sony Live View status D221 is OFF";
+        return false;
+    }
+
+    std::vector<uint8_t> payload;
+    if (!operation(kOpGetObject, {kLiveViewObjectHandle}, nullptr, &payload, error))
+        return false;
+
+    // Same Sony Live View dataset used by the working ESP32 controller:
+    // bytes 0..3 = JPEG offset, bytes 4..7 = JPEG size, little-endian.
+    if (payload.size() < 8) {
+        error = "Sony Live View dataset is too short";
+        return false;
+    }
+
+    const uint32_t jpegOffset = le32(payload.data());
+    const uint32_t jpegSize = le32(payload.data() + 4);
+    if (jpegOffset > payload.size() ||
+        jpegSize > payload.size() - static_cast<size_t>(jpegOffset)) {
+        error = "Sony Live View JPEG range is invalid";
+        return false;
+    }
+
+    if (jpegSize < 4 ||
+        payload[jpegOffset] != 0xFF ||
+        payload[jpegOffset + 1] != 0xD8) {
+        error = "Sony Live View payload has no JPEG at the reported offset";
+        return false;
+    }
+
+    jpeg.assign(payload.begin() + jpegOffset,
+                payload.begin() + jpegOffset + jpegSize);
+    return true;
+}
+
 bool SonyPtpIp::sendData(uint32_t transaction, const std::vector<uint8_t>& data, std::string& error) {
     Writer start; start.u32(transaction); start.u64(data.size());
     if (!writePacket(false, kStartData, start.bytes, error)) return false;
