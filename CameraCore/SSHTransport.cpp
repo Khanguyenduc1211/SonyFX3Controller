@@ -84,9 +84,11 @@ SSHResult SSHTransport::authenticatePassword(const std::string& username, const 
 
 bool SSHTransport::openCameraTunnels(std::string& error) {
     if (!session_) { error = "SSH session is not authenticated"; return false; }
-    commandChannel_ = libssh2_channel_direct_tcpip_ex(session_, "localhost", 15740, "127.0.0.1", 0);
+    // Use libssh2's canonical direct-tcpip helper, matching the working
+    // controller path: SSH -> localhost:15740 inside the camera.
+    commandChannel_ = libssh2_channel_direct_tcpip(session_, "localhost", 15740);
     if (!commandChannel_) { error = "Cannot open SSH command tunnel to camera localhost:15740: " + lastSshError(); return false; }
-    eventChannel_ = libssh2_channel_direct_tcpip_ex(session_, "localhost", 15740, "127.0.0.1", 0);
+    eventChannel_ = libssh2_channel_direct_tcpip(session_, "localhost", 15740);
     if (!eventChannel_) { error = "Cannot open SSH event tunnel to camera localhost:15740: " + lastSshError(); return false; }
     return true;
 }

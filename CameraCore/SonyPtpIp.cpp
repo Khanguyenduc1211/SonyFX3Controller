@@ -46,7 +46,7 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
         body.u32(connectionId_);
     } else {
         std::array<uint8_t, 16> guid{0x53,0x4F,0x4E,0x59,0x46,0x58,0x33,0x43,0x4F,0x4E,0x54,0x52,0x4F,0x4C,0x4C,0x52};
-        body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpString("SonyFX3Controller")); body.u32(1);
+        body.append(std::vector<uint8_t>(guid.begin(), guid.end())); body.append(ptpString("SonyFX3Controller")); body.u32(0x00010000);
     }
     if (!writePacket(eventChannel, eventChannel ? kInitEventRequest : kInitCommandRequest, body.bytes, error)) return false;
     Packet reply; if (!readPacket(eventChannel, reply, error)) return false;
@@ -62,7 +62,7 @@ bool SonyPtpIp::initializeChannel(bool eventChannel, std::string& error) {
 bool SonyPtpIp::initializePtp(std::string& error) {
     if (!initializeChannel(false, error) || !initializeChannel(true, error)) return false;
     std::vector<uint8_t> ignored;
-    if (!operation(kOpOpenSession, {1}, nullptr, &ignored, error)) return false;
+    if (!operation(kOpOpenSession, {1}, nullptr, nullptr, error)) return false;
     // Sony PTP3 sequence from CameraRemoteCommand: stages 1, 2, wait until
     // GetExtDeviceInfo returns PTP3 version 0x012C, then stage 3.
     if (!operation(kOpSdioConnect, {1, 0, 0}, nullptr, &ignored, error)) return false;
