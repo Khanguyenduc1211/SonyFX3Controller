@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <netdb.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -48,6 +49,13 @@ SSHResult SSHTransport::connectAndVerify(const std::string& host, uint16_t port,
     }
     freeaddrinfo(addresses);
     if (socket_ < 0) return {false, false, "Cannot connect to camera SSH service on port 22", {}};
+
+    // libssh2's non-blocking API requires its underlying TCP socket to be
+    // non-blocking as well. The ESP32 controller does this before handshake.
+    const int socketFlags = fcntl(socket_, F_GETFL, 0);
+    if (socketFlags < 0 || fcntl(socket_, F_SETFL, socketFlags | O_NONBLOCK) != 0) {
+        close(); return {false, false, "Cannot configure non-blocking SSH socket", {}};
+    }
 
     session_ = libssh2_session_init_ex(nullptr, nullptr, nullptr, &keyboardPassword_);
     if (!session_) { close(); return {false, false, "Cannot create SSH session", {}}; }
