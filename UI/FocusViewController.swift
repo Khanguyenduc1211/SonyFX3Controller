@@ -107,8 +107,8 @@ final class FocusViewController: UIViewController {
                 title: propertyNames[property] ?? "Focus",
                 values: values,
                 current: model.current(for: readback),
-                labels: { [model] value in
-                    model.displayValue(for: property, value: value)
+                labels: { [weak self] value in
+                    self?.model.displayValue(for: property, value: value) ?? String(value)
                 }
             ) { [weak self] value in
                 self?.model.set(property, to: value) {
