@@ -25,8 +25,18 @@ constexpr uint16_t kOpSdioControl = 0x9207;
 constexpr uint16_t kOpGetAllPropertyInfo = 0x9209;
 constexpr uint16_t kOpGetVendorVersion = 0x9216;
 
+// Sony Camera Remote SDK 2.02 Monitoring transport.
+// Binary inspection of Sony's Cr_PTP_IP adapter establishes operation 0x9230
+// with one UINT32 operation parameter and a Data-Out phase.  Do not construct
+// the Data-Out body until its SDK serialization is fully established.
+constexpr uint16_t kOpControlMonitoring = 0x9230;
+constexpr uint32_t kMonitoringStop = 0;
+constexpr uint32_t kMonitoringStart = 1;
+constexpr uint16_t kMonitoringDefaultVideoPort = 55001;
+constexpr uint16_t kMonitoringDefaultMetaPort = 55005;
+
 // Camera state/readback properties.
-constexpr uint16_t kPropRecordState = 0xD21D;       // recording status/readback
+constexpr uint16_t kPropRecordState = 0xD21D;
 constexpr uint16_t kPropIso = 0xD21E;
 constexpr uint16_t kPropShutterSpeed = 0xD20D;
 constexpr uint16_t kPropFNumber = 0x5007;
@@ -35,45 +45,36 @@ constexpr uint16_t kPropBatteryLevel = 0xD20E;
 constexpr uint16_t kPropSlot1RemainingTime = 0xD24A;
 constexpr uint16_t kPropSlot2RemainingTime = 0xD258;
 
-// Sony Live View properties / special object used by the working ESP32 controller.
 constexpr uint16_t kPropLiveViewStatus = 0xD221;
 constexpr uint16_t kPropLiveViewImageQuality = 0xD26A;
 constexpr uint8_t kLiveViewQualityLow = 0x01;
 constexpr uint8_t kLiveViewQualityHigh = 0x02;
 constexpr uint32_t kLiveViewObjectHandle = 0xFFFFC002u;
 
-// White balance properties used by the working ESP32 controller.
 constexpr uint16_t kPropWhiteBalance = 0x5005;
 constexpr uint16_t kPropColorTemperature = 0xD20F;
 constexpr uint16_t kPropWhiteBalanceGM = 0xD210;
 constexpr uint16_t kPropWhiteBalanceAB = 0xD21C;
 
-// Focus properties / controls.
 constexpr uint16_t kPropFocusMode = 0x500A;
 constexpr uint16_t kPropFocusArea = 0xD22C;
 constexpr uint16_t kPropFocusIndication = 0xD213;
-constexpr uint16_t kPropNearFarEnableStatus = 0xD235; // status/readback, not a writable enable switch
+constexpr uint16_t kPropNearFarEnableStatus = 0xD235;
 constexpr uint16_t kPropFocusPositionSetting = 0xE042;
 constexpr uint16_t kPropFocusPositionCurrent = 0xE043;
 constexpr uint16_t kCtrlRelativeFocus = 0xD2D1;
 constexpr uint16_t kCtrlShutterS1 = 0xD2C1;
 constexpr uint16_t kCtrlShutterS2 = 0xD2C2;
-
-// REC is a CONTROL code, not the D21D readback property.
 constexpr uint16_t kCtrlMovieRec = 0xD2C8;
 
-// Movie / S&Q / proxy properties verified against the working ESP32 controller.
-constexpr uint16_t kPropFileFormat = 0xD241;          // UINT8
-constexpr uint16_t kPropRecordSetting = 0xD242;       // UINT16
-constexpr uint16_t kPropFrameRate = 0xD286;           // UINT8
-constexpr uint16_t kPropSqCaptureFrameRate = 0xD0D0;  // UINT8
-constexpr uint16_t kPropSqRecordSetting = 0xD0D1;     // UINT16
-constexpr uint16_t kPropProxyRecording = 0xD109;      // UINT16
-
-// Compatibility aliases only. D0D0/D0D1 are S&Q fields, not proxy format/bitrate.
+constexpr uint16_t kPropFileFormat = 0xD241;
+constexpr uint16_t kPropRecordSetting = 0xD242;
+constexpr uint16_t kPropFrameRate = 0xD286;
+constexpr uint16_t kPropSqCaptureFrameRate = 0xD0D0;
+constexpr uint16_t kPropSqRecordSetting = 0xD0D1;
+constexpr uint16_t kPropProxyRecording = 0xD109;
 constexpr uint16_t kPropProxyFormat = kPropSqCaptureFrameRate;
 constexpr uint16_t kPropProxyBitrate = kPropSqRecordSetting;
-
 constexpr uint16_t kPropCineEiMode = 0xE000;
 constexpr uint16_t kPropBaseIso = 0xD020;
 constexpr uint16_t kPropEi = 0xD022;
@@ -94,30 +95,22 @@ constexpr uint16_t kDataString = 0xFFFF;
 struct Value {
     uint16_t type = kDataUInt32;
     std::vector<uint8_t> bytes;
-
     bool empty() const { return bytes.empty(); }
-
     int64_t signedNumber() const {
         const uint64_t number = unsignedNumber();
-
-        // Preserve unsigned Sony enum/property values such as 0x8012.
-        // The old implementation sign-extended purely from byte width, which
-        // turned valid UINT16/UINT32 camera values into negative Swift values.
         switch (type) {
-        case kDataInt8:  return static_cast<int8_t>(number);
+        case kDataInt8: return static_cast<int8_t>(number);
         case kDataInt16: return static_cast<int16_t>(number);
         case kDataInt32: return static_cast<int32_t>(number);
         case kDataInt64: return static_cast<int64_t>(number);
-        default:         return static_cast<int64_t>(number);
+        default: return static_cast<int64_t>(number);
         }
     }
-
     uint64_t unsignedNumber() const {
         uint64_t out = 0;
         for (size_t i = 0; i < std::min<size_t>(bytes.size(), 8); ++i) out |= uint64_t(bytes[i]) << (i * 8);
         return out;
     }
-
     static Value number(uint16_t type, int64_t value) {
         const size_t size = scalarSize(type);
         if (!size) throw std::invalid_argument("PTP value is not a scalar");
@@ -126,7 +119,6 @@ struct Value {
         for (size_t i = 0; i < size; ++i) out.bytes[i] = uint8_t(raw >> (8 * i));
         return out;
     }
-
     static size_t scalarSize(uint16_t type) {
         switch (type) {
         case kDataInt8: case kDataUInt8: return 1;
@@ -140,19 +132,10 @@ struct Value {
 };
 
 struct PropertyDescriptor {
-    uint16_t code = 0;
-    uint16_t type = 0;
-    bool writable = false;
-    bool enabled = false;
-    Value factoryDefault;
-    Value current;
-    uint8_t form = 0;
-    std::optional<Value> rangeMinimum;
-    std::optional<Value> rangeMaximum;
-    std::optional<Value> rangeStep;
-    // Sony's PTP3 0x9209 enumeration form contains two lists. Do not merge them.
-    std::vector<Value> setValues;
-    std::vector<Value> getSetValues;
+    uint16_t code = 0; uint16_t type = 0; bool writable = false; bool enabled = false;
+    Value factoryDefault; Value current; uint8_t form = 0;
+    std::optional<Value> rangeMinimum, rangeMaximum, rangeStep;
+    std::vector<Value> setValues, getSetValues;
 };
 
 class Reader {
@@ -185,72 +168,36 @@ inline Value readValue(Reader& reader, uint16_t type) {
     const size_t scalar = Value::scalarSize(type);
     if (scalar) { out.bytes = reader.take(scalar); return out; }
     if (type == kDataString) {
-        const uint8_t charsIncludingNull = reader.u8();
-        out.bytes.push_back(charsIncludingNull);
+        const uint8_t charsIncludingNull = reader.u8(); out.bytes.push_back(charsIncludingNull);
         if (charsIncludingNull) { auto rest = reader.take(size_t(charsIncludingNull) * 2); out.bytes.insert(out.bytes.end(), rest.begin(), rest.end()); }
         return out;
     }
-    // PTP arrays are their scalar type plus 0x4000 and begin with UInt32 count.
     const uint16_t elementType = type & 0x0FFF;
     const size_t elementSize = Value::scalarSize(elementType);
     if ((type & 0xF000) == 0x4000 && elementSize) {
-        const uint32_t count = reader.u32();
-        Writer encoded; encoded.u32(count); encoded.append(reader.take(size_t(count) * elementSize));
-        out.bytes = std::move(encoded.bytes); return out;
+        const uint32_t count = reader.u32(); Writer encoded; encoded.u32(count); encoded.append(reader.take(size_t(count) * elementSize)); out.bytes = std::move(encoded.bytes); return out;
     }
     throw std::runtime_error("unsupported PTP datatype");
 }
 
 inline std::vector<PropertyDescriptor> parseAllPropertyInfo(const std::vector<uint8_t>& dataset) {
-    Reader reader(dataset);
-    const uint64_t count = reader.u64();
-    std::vector<PropertyDescriptor> properties;
+    Reader reader(dataset); const uint64_t count = reader.u64(); std::vector<PropertyDescriptor> properties;
     properties.reserve(static_cast<size_t>(std::min<uint64_t>(count, 4096)));
     for (uint64_t i = 0; i < count; ++i) {
-        PropertyDescriptor p;
-        p.code = reader.u16();
-        p.type = reader.u16();
-        p.writable = reader.u8() != 0;
-        p.enabled = reader.u8() != 0;
-        p.factoryDefault = readValue(reader, p.type);
-        p.current = readValue(reader, p.type);
-        p.form = reader.u8();
-        if (p.form == 1) {
-            p.rangeMinimum = readValue(reader, p.type);
-            p.rangeMaximum = readValue(reader, p.type);
-            p.rangeStep = readValue(reader, p.type);
-        } else if (p.form != 0) {
-            const uint16_t setCount = reader.u16();
-            p.setValues.reserve(setCount);
-            for (uint16_t j = 0; j < setCount; ++j) p.setValues.push_back(readValue(reader, p.type));
-            const uint16_t getSetCount = reader.u16();
-            p.getSetValues.reserve(getSetCount);
-            for (uint16_t j = 0; j < getSetCount; ++j) p.getSetValues.push_back(readValue(reader, p.type));
+        PropertyDescriptor p; p.code = reader.u16(); p.type = reader.u16(); p.writable = reader.u8() != 0; p.enabled = reader.u8() != 0;
+        p.factoryDefault = readValue(reader, p.type); p.current = readValue(reader, p.type); p.form = reader.u8();
+        if (p.form == 1) { p.rangeMinimum = readValue(reader, p.type); p.rangeMaximum = readValue(reader, p.type); p.rangeStep = readValue(reader, p.type); }
+        else if (p.form != 0) {
+            const uint16_t setCount = reader.u16(); p.setValues.reserve(setCount); for (uint16_t j=0;j<setCount;++j) p.setValues.push_back(readValue(reader,p.type));
+            const uint16_t getSetCount = reader.u16(); p.getSetValues.reserve(getSetCount); for (uint16_t j=0;j<getSetCount;++j) p.getSetValues.push_back(readValue(reader,p.type));
         }
         properties.push_back(std::move(p));
     }
     return properties;
 }
 
-inline std::string hex(uint64_t value, unsigned width = 0) {
-    std::ostringstream stream; stream << "0x" << std::uppercase << std::hex << std::setfill('0');
-    if (width) stream << std::setw(width); stream << value; return stream.str();
-}
-
-inline std::string formatValue(const Value& value) {
-    if (value.type == kDataString) return "PTP string";
-    if (value.type & 0x4000) return "PTP array";
-    const bool isSigned = value.type == kDataInt8 || value.type == kDataInt16 || value.type == kDataInt32 || value.type == kDataInt64;
-    return isSigned ? std::to_string(value.signedNumber()) : std::to_string(value.unsignedNumber());
-}
-
-inline std::string sha256Fingerprint(const unsigned char* fingerprint, size_t length) {
-    std::ostringstream stream;
-    for (size_t i = 0; i < length; ++i) {
-        if (i) stream << ':';
-        stream << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << unsigned(fingerprint[i]);
-    }
-    return stream.str();
-}
+inline std::string hex(uint64_t value, unsigned width = 0) { std::ostringstream stream; stream << "0x" << std::uppercase << std::hex << std::setfill('0'); if (width) stream << std::setw(width); stream << value; return stream.str(); }
+inline std::string formatValue(const Value& value) { if (value.type == kDataString) return "PTP string"; if (value.type & 0x4000) return "PTP array"; const bool isSigned = value.type == kDataInt8 || value.type == kDataInt16 || value.type == kDataInt32 || value.type == kDataInt64; return isSigned ? std::to_string(value.signedNumber()) : std::to_string(value.unsignedNumber()); }
+inline std::string sha256Fingerprint(const unsigned char* fingerprint, size_t length) { std::ostringstream stream; for (size_t i=0;i<length;++i) { if(i) stream << ':'; stream << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << unsigned(fingerprint[i]); } return stream.str(); }
 
 } // namespace sony
