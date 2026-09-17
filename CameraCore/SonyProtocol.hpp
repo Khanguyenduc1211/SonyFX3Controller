@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-// PTP/IP and Sony SDIO helpers.  All multi-byte fields are little-endian.
+// PTP/IP and Sony SDIO helpers.  All multi-byte PTP fields are little-endian.
 // This file intentionally has no networking dependency so it is unit-testable
 // on macOS and on-device.
 namespace sony {
@@ -25,15 +25,17 @@ constexpr uint16_t kOpSdioControl = 0x9207;
 constexpr uint16_t kOpGetAllPropertyInfo = 0x9209;
 constexpr uint16_t kOpGetVendorVersion = 0x9216;
 
-// Sony Camera Remote SDK 2.02 Monitoring transport.
-// Binary inspection of Sony's Cr_PTP_IP adapter establishes operation 0x9230
-// with one UINT32 operation parameter and a Data-Out phase.  Do not construct
-// the Data-Out body until its SDK serialization is fully established.
+// Sony Camera Remote SDK 2.02 Monitoring transport. These raw values are
+// binary-derived from Sony's Cr_Core/Cr_PTP_IP implementation, not a public
+// wire-protocol contract.  The public API enum is Stop=0/Start=1, while the
+// private 0x9230 wire operation parameter is Start=1/Stop=2.
 constexpr uint16_t kOpControlMonitoring = 0x9230;
-constexpr uint32_t kMonitoringStop = 0;
-constexpr uint32_t kMonitoringStart = 1;
-constexpr uint16_t kMonitoringDefaultVideoPort = 55001;
-constexpr uint16_t kMonitoringDefaultMetaPort = 55005;
+constexpr uint8_t kMonitoringApiStop = 0;
+constexpr uint8_t kMonitoringApiStart = 1;
+constexpr uint32_t kMonitoringWireStart = 1;
+constexpr uint32_t kMonitoringWireStop = 2;
+constexpr uint32_t kMonitoringDefaultVideoPort = 55001;
+constexpr uint32_t kMonitoringDefaultMetaPort = 55005;
 
 // Camera state/readback properties.
 constexpr uint16_t kPropRecordState = 0xD21D;
@@ -50,6 +52,12 @@ constexpr uint16_t kPropLiveViewImageQuality = 0xD26A;
 constexpr uint8_t kLiveViewQualityLow = 0x01;
 constexpr uint8_t kLiveViewQualityHigh = 0x02;
 constexpr uint32_t kLiveViewObjectHandle = 0xFFFFC002u;
+
+// Binary-derived raw property IDs from Sony SDK 2.02's static property map.
+constexpr uint16_t kPropMonitoringDeliveringStatus = 0xE098;
+constexpr uint16_t kPropMonitoringIsDelivering = 0xE099;
+constexpr uint16_t kPropMonitoringSettingVersion = 0xE09D;
+constexpr uint16_t kPropMonitoringDeliveryTypeSupportInfo = 0xE09F;
 
 constexpr uint16_t kPropWhiteBalance = 0x5005;
 constexpr uint16_t kPropColorTemperature = 0xD20F;
