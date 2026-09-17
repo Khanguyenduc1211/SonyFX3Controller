@@ -15,23 +15,30 @@ int main() {
     assert(formatValue(Value::number(kDataUInt32, 24000)) == "24000");
 
     static_assert(kOpControlMonitoring == 0x9230);
-    static_assert(kMonitoringStop == 0);
-    static_assert(kMonitoringStart == 1);
+    static_assert(kMonitoringApiStop == 0);
+    static_assert(kMonitoringApiStart == 1);
+    static_assert(kMonitoringWireStart == 1);
+    static_assert(kMonitoringWireStop == 2);
     static_assert(kMonitoringDefaultVideoPort == 55001);
     static_assert(kMonitoringDefaultMetaPort == 55005);
+    static_assert(kPropMonitoringDeliveringStatus == 0xE098);
+    static_assert(kPropMonitoringIsDelivering == 0xE099);
+    static_assert(kPropMonitoringSettingVersion == 0xE09D);
+    static_assert(kPropMonitoringDeliveryTypeSupportInfo == 0xE09F);
 
     MonitoringDeliverySetting setting;
     setting.ipAddress = "192.0.2.1";
     MonitoringWireRequest request;
     std::string monitoringError;
-    assert(!buildMonitoringStartRequest(setting, request, monitoringError));
-    assert(!monitoringError.empty());
+    assert(buildMonitoringStartRequest(setting, 101, request, monitoringError));
+    assert(request.operation == kMonitoringWireStart);
+    assert(!request.dataOut.empty());
 
     SonyMonitoringReceiver receiver;
-    receiver.publishCompleteJpeg(1, {0x00, 0x01, 0x02, 0x03});
+    receiver.publishCompleteJpeg(1, {0x00,0x01,0x02,0x03});
     assert(!receiver.takeLatest().has_value());
-    receiver.publishCompleteJpeg(1, {0xFF, 0xD8, 0x01, 0xFF, 0xD9});
-    receiver.publishCompleteJpeg(2, {0xFF, 0xD8, 0x02, 0xFF, 0xD9});
+    receiver.publishCompleteJpeg(1, {0xFF,0xD8,0x01,0xFF,0xD9});
+    receiver.publishCompleteJpeg(2, {0xFF,0xD8,0x02,0xFF,0xD9});
     auto latest = receiver.takeLatest();
     assert(latest && latest->sequence == 2 && latest->jpeg[2] == 0x02);
     assert(!receiver.takeLatest().has_value());
