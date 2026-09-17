@@ -2,6 +2,7 @@
 
 #include "SSHTransport.hpp"
 #include "SonyCameraState.hpp"
+#include "SonyMonitoring.hpp"
 
 #include <functional>
 #include <memory>
@@ -39,6 +40,70 @@ public:
     bool startRecording(std::string& error);
     bool stopRecording(std::string& error);
 
+    // The caller MUST bind/start its VERIC receiver before Start. Sony CrSDK
+    // starts the local receiver first and only then sends 0x9230 Start.
+    bool startMonitoring(const MonitoringDeliverySetting& setting, std::string& error) {
+        if (monitoringActive_) {
+            error.clear();
+            return true;
+        }
+        if (!transport_ || !transport_->connected()) {
+            error = "Camera is not connected";
+            return false;
+        }
+
+        const auto* versionProperty = state_.property(kPropMonitoringSettingVersion);
+        if (!versionProperty || !versionProperty->enabled || versionProperty->current.empty()) {
+            error = "Sony MonitoringSettingVersion E09D is unavailable in this camera mode";
+            return false;
+        }
+        const uint64_t rawVersion = versionProperty->current.unsignedNumber();
+        if (rawVersion > 0xFFFFu) {
+            error = "Sony MonitoringSettingVersion does not fit the SDK 2.02 wire field";
+            return false;
+        }
+
+        MonitoringWireRequest request;
+        if (!buildMonitoringStartRequest(setting, static_cast<uint16_t>(rawVersion), request, error))
+            return false;
+
+        std::vector<uint32_t> responseParameters;
+        if (!operation(kOpControlMonitoring, {request.operation}, &request.dataOut,
+                       nullptr, error, &responseParameters))
+            return false;
+
+        // CrSDK stores OperationResponse Param1 as the Monitoring delivery ID.
+        if (responseParameters.empty()) {
+            error = "Sony Monitoring Start succeeded without a delivery ID";
+            return false;
+        }
+
+        monitoringSettingVersion_ = static_cast<uint16_t>(rawVersion);
+        monitoringDeliveryId_ = responseParameters.front();
+        monitoringActive_ = true;
+        error.clear();
+        return true;
+    }
+
+    bool stopMonitoring(std::string& error) {
+        if (!monitoringActive_) {
+            error.clear();
+            return true;
+        }
+        const auto request = buildMonitoringStopRequest(monitoringSettingVersion_, monitoringDeliveryId_);
+        if (!operation(kOpControlMonitoring, {request.operation}, &request.dataOut,
+                       nullptr, error, nullptr))
+            return false;
+        monitoringActive_ = false;
+        monitoringDeliveryId_ = 0;
+        monitoringSettingVersion_ = 0;
+        error.clear();
+        return true;
+    }
+
+    bool monitoringActive() const { return monitoringActive_; }
+    uint32_t monitoringDeliveryId() const { return monitoringDeliveryId_; }
+
 private:
     struct Packet { uint32_t type = 0; std::vector<uint8_t> payload; };
     bool initializePtp(std::string& error);
@@ -60,6 +125,9 @@ private:
     CameraState state_;
     uint32_t transaction_ = 1;
     uint32_t connectionId_ = 0;
+    uint16_t monitoringSettingVersion_ = 0;
+    uint32_t monitoringDeliveryId_ = 0;
+    bool monitoringActive_ = false;
     StateCallback stateCallback_;
     EventCallback eventCallback_;
 };
