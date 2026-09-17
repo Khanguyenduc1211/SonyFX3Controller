@@ -1,4 +1,6 @@
 #include "SonyProtocol.hpp"
+#include "SonyMonitoring.hpp"
+#include "SonyMonitoringReceiver.hpp"
 #include <cassert>
 #include <iostream>
 
@@ -12,14 +14,27 @@ int main() {
     assert(Value::number(kDataInt16, -7).signedNumber() == -7);
     assert(formatValue(Value::number(kDataUInt32, 24000)) == "24000");
 
-    // Camera Remote SDK 2.02 / Cr_PTP_IP monitoring facts established before
-    // enabling the transport path.  Payload serialization intentionally has no
-    // guessed test vector yet.
     static_assert(kOpControlMonitoring == 0x9230);
     static_assert(kMonitoringStop == 0);
     static_assert(kMonitoringStart == 1);
     static_assert(kMonitoringDefaultVideoPort == 55001);
     static_assert(kMonitoringDefaultMetaPort == 55005);
+
+    MonitoringDeliverySetting setting;
+    setting.ipAddress = "192.0.2.1";
+    MonitoringWireRequest request;
+    std::string monitoringError;
+    assert(!buildMonitoringStartRequest(setting, request, monitoringError));
+    assert(!monitoringError.empty());
+
+    SonyMonitoringReceiver receiver;
+    receiver.publishCompleteJpeg(1, {0x00, 0x01, 0x02, 0x03});
+    assert(!receiver.takeLatest().has_value());
+    receiver.publishCompleteJpeg(1, {0xFF, 0xD8, 0x01, 0xFF, 0xD9});
+    receiver.publishCompleteJpeg(2, {0xFF, 0xD8, 0x02, 0xFF, 0xD9});
+    auto latest = receiver.takeLatest();
+    assert(latest && latest->sequence == 2 && latest->jpeg[2] == 0x02);
+    assert(!receiver.takeLatest().has_value());
 
     std::cout << "SonyProtocolTests passed\n";
 }
