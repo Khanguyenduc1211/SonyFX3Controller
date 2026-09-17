@@ -69,8 +69,10 @@ inline bool validateMonitoringSetting(const MonitoringDeliverySetting& input,
         error = "Sony CrSDK 2.02 public Monitoring delivery type is JPEG";
         return false;
     }
-    if (setting.deliveryImageQualityLevel < 1 || setting.deliveryImageQualityLevel > 5) {
-        error = "Sony Monitoring image quality level must be in the SDK-supported range 1...5";
+    // Sony's 2.02 public sample accepts Monitoring image quality levels 1...3.
+    // Do not expose undocumented levels even if private internals use wider fields.
+    if (setting.deliveryImageQualityLevel < 1 || setting.deliveryImageQualityLevel > 3) {
+        error = "Sony Monitoring image quality level must be in the SDK-supported range 1...3";
         return false;
     }
     if (setting.transportProtocol != MonitoringTransportProtocol::udp &&
