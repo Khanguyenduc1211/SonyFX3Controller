@@ -1,5 +1,6 @@
 #include "SonyMonitoring.hpp"
 #include "SonyMonitoringReceiver.hpp"
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <string>
@@ -61,6 +62,35 @@ int main() {
     MonitoringDeliverySetting invalid = setting;
     invalid.videoPort = 55005;
     assert(!buildMonitoringStartRequest(invalid, 101, request, error));
+    invalid = setting;
+    invalid.deliveryImageQualityLevel = 4;
+    assert(!buildMonitoringStartRequest(invalid, 101, request, error));
+
+    std::array<uint8_t, VericHeader::kSize> packet{};
+    packet[0]='V'; packet[1]='E'; packet[2]='R'; packet[3]='I'; packet[4]='C';
+    packet[5]=0xFE; packet[6]=0x12; packet[7]=0xFD;
+    packet[8]=0x01; packet[9]=0x23; packet[10]=0x45; packet[11]=0x67;
+    packet[12]=0x89; packet[13]=0xAB; packet[14]=0xCD; packet[15]=0xEF;
+    packet[18]=0x12; packet[19]=0x34;
+    packet[20]=0x10; packet[21]=0x20; packet[22]=0x30; packet[23]=0x40;
+    packet[24]=0x56; packet[25]=0x78;
+    packet[26]=0x9A; packet[27]=0xBC;
+    packet[32]=0x01; packet[39]=0x08;
+    packet[40]=0x11; packet[47]=0x18;
+    packet[56]=0xFA; packet[57]=0xFB; packet[58]=0xFC;
+    VericHeader header;
+    assert(parseVericHeader(packet.data(), packet.size(), header));
+    assert(header.field05 == static_cast<int8_t>(0xFE));
+    assert(header.field06 == 0x12);
+    assert(header.field08 == 0x01234567u);
+    assert(header.field12 == 0x89ABCDEFu);
+    assert(header.field18 == 0x1234u);
+    assert(header.field20 == 0x10203040u);
+    assert(header.field24 == 0x5678u);
+    assert(header.field26 == 0x9ABCu);
+    assert(!parseVericHeader(packet.data(), VericHeader::kSize - 1, header));
+    packet[0] = 'X';
+    assert(!parseVericHeader(packet.data(), packet.size(), header));
 
     SonyMonitoringReceiver receiver;
     receiver.publishCompleteJpeg(10, {0xFF,0xD8,0x10,0xFF,0xD9});
