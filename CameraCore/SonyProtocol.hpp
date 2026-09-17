@@ -24,6 +24,11 @@ constexpr uint16_t kOpSetProperty = 0x9205;
 constexpr uint16_t kOpSdioControl = 0x9207;
 constexpr uint16_t kOpGetAllPropertyInfo = 0x9209;
 constexpr uint16_t kOpGetVendorVersion = 0x9216;
+// Verified from Sony Camera Remote SDK 2.02 libCr_PTP_IP.dylib:
+// ptpipconnection::controlMonitoring() sends opcode 0x9230 with exactly one
+// UINT32 operation parameter and a DATA-OUT payload. Do not infer the payload
+// layout here; it is added only after its serialization is independently verified.
+constexpr uint16_t kOpControlMonitoring = 0x9230;
 
 // Camera state/readback properties.
 constexpr uint16_t kPropRecordState = 0xD21D;       // recording status/readback
@@ -262,7 +267,7 @@ inline std::string formatValue(const Value& value) {
 }
 
 inline std::string sha256Fingerprint(const unsigned char* fingerprint, size_t length) {
-    std::ostringstream stream;
+    std::ostringstream stream; stream << "SHA256:";
     for (size_t i = 0; i < length; ++i) {
         if (i) stream << ':';
         stream << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << unsigned(fingerprint[i]);
